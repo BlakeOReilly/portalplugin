@@ -1,7 +1,6 @@
 import os, sys, json, time, glob, shlex, tempfile, subprocess, re, textwrap
 from pathlib import Path
 from datetime import datetime
-from unidiff import PatchSet
 from openai import OpenAI
 
 # ===== Load config =====
@@ -17,7 +16,7 @@ MAX_CONTEXT_BYTES = int(CFG.get("max_context_bytes", 350000))
 CONTEXT_MODE = CFG.get("context_mode", "diff")
 MAX_FIX_ATTEMPTS = int(CFG.get("max_fix_attempts", 3))
 INITIAL_BUILD = bool(CFG.get("initial_build", True))
-MAX_PATCH_RETRIES = int(CFG.get("max_patch_retries", 2))  # new: retries when patch is malformed
+MAX_PATCH_RETRIES = int(CFG.get("max_patch_retries", 2))
 
 AUTO_DEPLOY = CFG.get("auto_deploy", {})
 DEPLOY_ENABLED = bool(AUTO_DEPLOY.get("enabled", False))
@@ -41,15 +40,9 @@ def _format_cmd_for_print(cmd):
     return " ".join(shlex.quote(str(x)) for x in cmd)
 
 def run(cmd, cwd=WATCH_DIR):
-    """
-    Windows-friendly runner:
-    - Strings: shell=True
-    - Lists: .bat/.cmd and bare names via cmd /c
-    """
     try:
         if isinstance(cmd, str):
             return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, shell=True)
-
         if os.name == "nt":
             exe = cmd[0]
             exe_lower = exe.lower()
@@ -60,9 +53,7 @@ def run(cmd, cwd=WATCH_DIR):
                 needs_cmd = True
             if needs_cmd:
                 return subprocess.run(["cmd", "/c"] + cmd, cwd=str(cwd), capture_output=True, text=True, shell=False)
-
         return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, shell=False)
-
     except FileNotFoundError as e:
         msg = (
             f"\n[run] FileNotFoundError launching command.\n"
@@ -177,22 +168,16 @@ FENCE_RE = re.compile(r"^```(?:diff|patch)?\s*$", re.IGNORECASE)
 
 def sanitize_patch_text(text: str) -> str:
     t = text.strip()
-
-    # Remove code fences if present
     lines = t.splitlines()
     if lines and FENCE_RE.match(lines[0]):
         for i in range(1, len(lines)):
             if lines[i].strip() == "```":
                 t = "\n".join(lines[1:i])
                 break
-
-    # Extract between markers if provided
     begin = t.find("<BEGIN_PATCH>")
     end = t.find("<END_PATCH>")
     if begin != -1 and end != -1 and end > begin:
         t = t[begin + len("<BEGIN_PATCH>"):end].strip()
-
-    # Trim any leading preamble before first diff header
     idx_diff = t.find("diff --git ")
     idx_unified = t.find("\n--- ")
     idx_unified_start = t.find("--- ")
@@ -200,8 +185,12 @@ def sanitize_patch_text(text: str) -> str:
     if starts:
         start_at = min(starts)
         t = t[start_at:].lstrip()
-
     return t
+
+def _normalize_line_endings(s: str) -> str:
+    # Convert CRLF/CR to LF (git apply expects consistent counts)
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    return s
 
 def _clean_patch_whitespace(raw_text: str) -> str:
     clean_lines = [line.rstrip() for line in raw_text.splitlines()]
@@ -219,6 +208,40 @@ def _print_patch_failure(patch_path: str, stderr: str, note: str):
     if note:
         print("[note]")
         print(textwrap.shorten(note, width=1000, placeholder=" …"))
+    # Show .rej files if any
+    rej_files = list(WATCH_DIR.rglob("*.rej"))
+    if rej_files:
+        print("[rejects] The following .rej files were created:")
+        for rf in rej_files[:10]:
+            print(" -", rf)
+        try:
+            sample = rej_files[0].read_text(encoding="utf-8", errors="replace")
+            print("[reject sample]")
+            print(sample[:1000])
+        except Exception:
+            pass
+
+def _write_temp_patch(text: str) -> str:
+    with tempfile.NamedTemporaryFile("w", delete=False, suffix=".patch", encoding="utf-8") as f:
+        f.write(text)
+        return f.name
+
+def _try_git_apply_variants(patch_path: str):
+    # 1) tolerant: ignore space change, fix whitespace, add to index
+    ap = git(["apply", "--ignore-space-change", "--whitespace=fix", "--index", patch_path])
+    if ap.returncode == 0:
+        return True, ""
+    # 2) 3-way merge attempt
+    ap3 = git(["apply", "-3", "--whitespace=fix", "--index", patch_path])
+    if ap3.returncode == 0:
+        return True, ""
+    # 3) write rejects
+    apr = git(["apply", "--whitespace=fix", "--reject", patch_path])
+    if apr.returncode == 0:
+        # With --reject, patched files are modified in working tree but hunks may be rejected
+        return True, "(applied with rejects; see .rej files)"
+    # Return the last stderr
+    return False, apr.stderr or ap3.stderr or ap.stderr
 
 def apply_patch(patch_text):
     """
@@ -229,34 +252,21 @@ def apply_patch(patch_text):
     if not _looks_like_diff(text):
         return False, "No diff headers detected after sanitization.", None
 
+    text = _normalize_line_endings(text)
     cleaned_text = _clean_patch_whitespace(text)
+    patch_path = _write_temp_patch(cleaned_text)
 
-    # Validate patch structure after cleaning
-    try:
-        PatchSet(cleaned_text)
-    except Exception as e:
-        # Still write patch file for debugging
-        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".patch", encoding="utf-8") as f:
-            f.write(cleaned_text)
-            ppath = f.name
-        _print_patch_failure(ppath, "", f"Invalid patch format after cleanup: {e}")
-        return False, f"Invalid patch format after cleanup: {e}", ppath
+    ok, err = _try_git_apply_variants(patch_path)
+    if not ok:
+        _print_patch_failure(patch_path, err, "")
+        return False, err or "git apply failed", patch_path
 
-    with tempfile.NamedTemporaryFile("w", delete=False, suffix=".patch", encoding="utf-8") as f:
-        f.write(cleaned_text)
-        patch_path = f.name
-
-    ap = git(["apply", "--whitespace=fix", "--index", patch_path])
-    if ap.returncode != 0:
-        _print_patch_failure(patch_path, ap.stderr, "")
-        return False, ap.stderr, patch_path
-
+    # If we got here, something applied; stage + commit everything changed
     cm = git(["commit","-m", f"AI patch {datetime.now().isoformat(timespec='seconds')}"])
     if cm.returncode != 0:
         _print_patch_failure(patch_path, cm.stderr, "")
         return False, cm.stderr, patch_path
 
-    # Print changed files
     changed = git(["diff", "--name-only", "HEAD~1", "HEAD"]).stdout.strip()
     print("✅ Patch applied and committed. Files changed:")
     print(changed if changed else "(no files?)")
@@ -269,10 +279,11 @@ def project_context_blob():
 def _change_prompt(strict: bool, allow: str, change_instructions: str) -> tuple[str, str]:
     system = (
         "You are a senior Java engineer working on a Bukkit/Paper/Velocity plugin. "
-        "Return ONLY a valid git patch. Avoid trailing whitespace. Ensure `git apply` succeeds."
+        "Return ONLY a valid git patch. Avoid trailing whitespace. Use LF line endings. "
+        "Ensure `git apply` succeeds on Windows with CRLF working trees."
     )
     fmt_help = (
-        "Output ONLY the patch, starting with 'diff --git a/... b/...' and unified hunks '@@ -x,y +x,y @@'."
+        "Output ONLY the patch, starting with 'diff --git a/... b/...' and correct unified hunks '@@ -x,y +x,y @@'."
         if strict else
         "Output ONLY a unified diff patch (---/+++ with @@ hunks) or 'diff --git' format."
     )
@@ -299,10 +310,10 @@ def _fix_prompt(strict: bool, allow: str, failure_text: str) -> tuple[str, str]:
     system = (
         "You are a senior Java engineer. "
         "Return ONLY a valid git patch that fixes the build/test failure. "
-        "Avoid trailing whitespace. Ensure `git apply` succeeds."
+        "Avoid trailing whitespace. Use LF line endings. Ensure `git apply` succeeds."
     )
     fmt_help = (
-        "Output ONLY the patch, starting with 'diff --git a/... b/...' and unified hunks."
+        "Output ONLY the patch, starting with 'diff --git a/... b/...' and correct unified hunks."
         if strict else
         "Output ONLY a unified diff (---/+++ with @@ hunks) or 'diff --git' format."
     )
@@ -348,19 +359,12 @@ def ask_for_fix_patch(model_name, failure_text, strict=False):
     return resp.output_text, getattr(resp, "model", model_name)
 
 def request_with_retries(request_fn, model_names, *args):
-    """
-    Try (model, strict=False), then (same model, strict=True),
-    then fallback model with strict=True. Returns (text, used_model) or (None, None).
-    """
-    # 1) primary, loose
     text, used = request_fn(model_names[0], *args, False)
     if text and _looks_like_diff(sanitize_patch_text(text)):
         return text, used
-    # 2) primary, strict
     text, used = request_fn(model_names[0], *args, True)
     if text and _looks_like_diff(sanitize_patch_text(text)):
         return text, used
-    # 3) fallback, strict
     if len(model_names) > 1 and model_names[1]:
         text, used = request_fn(model_names[1], *args, True)
         if text and _looks_like_diff(sanitize_patch_text(text)):
@@ -383,11 +387,7 @@ def read_multiline_prompt():
     return "\n".join(lines).strip()
 
 def obtain_and_apply_patch(request_fn, model_order, *args):
-    """
-    Obtains a patch with retries and applies it, with extra retries on apply/format errors.
-    Returns True if applied.
-    """
-    for cycle in range(1, MAX_PATCH_RETRIES + 2):  # e.g., 1..(2+1)=3 attempts
+    for cycle in range(1, MAX_PATCH_RETRIES + 2):
         patch, used_model = request_with_retries(request_fn, model_order, *args)
         if not patch:
             print(f"[patch] Could not obtain a valid patch on attempt {cycle}.")
@@ -443,7 +443,6 @@ def main():
 
         if obtain_and_apply_patch(ask_for_fix_patch, current_order, result.stdout + "\n" + result.stderr):
             continue
-        # swap order for next round
         current_order = [current_order[1], current_order[0]]
 
 if __name__ == "__main__":
