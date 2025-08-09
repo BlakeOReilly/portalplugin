@@ -1,4 +1,4 @@
-import os, sys, json, time, glob, shlex, tempfile, subprocess
+import os, sys, json, time, glob, shlex, tempfile, subprocess, re
 from pathlib import Path
 from datetime import datetime
 from unidiff import PatchSet
@@ -17,6 +17,7 @@ MAX_CONTEXT_BYTES = int(CFG.get("max_context_bytes", 350000))
 CONTEXT_MODE = CFG.get("context_mode", "diff")
 MAX_FIX_ATTEMPTS = int(CFG.get("max_fix_attempts", 3))
 INITIAL_BUILD = bool(CFG.get("initial_build", True))
+MAX_PATCH_RETRIES = 2  # additional retries with stricter prompt if patch invalid
 
 AUTO_DEPLOY = CFG.get("auto_deploy", {})
 DEPLOY_ENABLED = bool(AUTO_DEPLOY.get("enabled", False))
@@ -41,56 +42,33 @@ def _format_cmd_for_print(cmd):
 
 def run(cmd, cwd=WATCH_DIR):
     """
-    Executes a command with good Windows support:
-    - Strings use shell=True so PATH/built-ins work.
-    - Lists: on Windows, .bat/.cmd and bare names are run via `cmd /c`.
-    Provides clear diagnostics on FileNotFoundError.
+    Windows-friendly runner:
+    - Strings: shell=True
+    - Lists: .bat/.cmd and bare names via cmd /c
     """
     try:
         if isinstance(cmd, str):
-            return subprocess.run(
-                cmd,
-                cwd=str(cwd),
-                capture_output=True,
-                text=True,
-                shell=True
-            )
+            return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, shell=True)
 
-        # List form
         if os.name == "nt":
             exe = cmd[0]
             exe_lower = exe.lower()
             needs_cmd = False
-
             if exe_lower.endswith(".bat") or exe_lower.endswith(".cmd"):
                 needs_cmd = True
             elif (not os.path.isabs(exe)) and (("." not in os.path.basename(exe))):
                 needs_cmd = True
-
             if needs_cmd:
-                return subprocess.run(
-                    ["cmd", "/c"] + cmd,
-                    cwd=str(cwd),
-                    capture_output=True,
-                    text=True,
-                    shell=False
-                )
+                return subprocess.run(["cmd", "/c"] + cmd, cwd=str(cwd), capture_output=True, text=True, shell=False)
 
-        return subprocess.run(
-            cmd,
-            cwd=str(cwd),
-            capture_output=True,
-            text=True,
-            shell=False
-        )
+        return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, shell=False)
 
     except FileNotFoundError as e:
         msg = (
             f"\n[run] FileNotFoundError launching command.\n"
             f"  CWD: {cwd}\n"
             f"  CMD: {_format_cmd_for_print(cmd)}\n"
-            f"  Hint: If you use Gradle wrapper, ensure gradlew.bat exists.\n"
-            f"        Otherwise the script can fall back to system Gradle.\n"
+            f"  Hint: ensure gradlew.bat exists or use system Gradle in config.json.\n"
         )
         raise FileNotFoundError(msg) from e
 
@@ -133,11 +111,6 @@ def collect_full_context():
     return "".join(buf)
 
 def resolve_test_cmd():
-    """
-    Choose the best test/build command:
-    - If config explicitly set a command, use it.
-    - If first element refers to gradlew.* but file doesn't exist, fall back to system Gradle.
-    """
     if isinstance(TEST_CMD, list) and TEST_CMD:
         first = TEST_CMD[0].lower()
         if "gradlew" in first:
@@ -147,7 +120,6 @@ def resolve_test_cmd():
                 print("gradlew wrapper not found; falling back to system Gradle on PATH.")
                 return ["cmd", "/c", "gradle", "build"] if os.name == "nt" else ["gradle", "build"]
         return TEST_CMD
-
     gradlew = WATCH_DIR / "gradlew.bat"
     gradlew_sh = WATCH_DIR / "gradlew"
     if gradlew.exists() or gradlew_sh.exists():
@@ -159,8 +131,7 @@ def run_tests():
     print("Running build/tests...")
     print(f"[build] CWD: {WATCH_DIR}")
     print(f"[build] CMD: {_format_cmd_for_print(cmd)}")
-    res = run(cmd)
-    return res
+    return run(cmd)
 
 def newest_jar():
     pattern_path = (WATCH_DIR / JAR_GLOB) if not os.path.isabs(JAR_GLOB) else Path(JAR_GLOB)
@@ -201,30 +172,54 @@ def deploy_and_restart_if_enabled():
         ok2 = start_server_if_configured()
         print(f"Server restart: kill_ok={ok1}, start_ok={ok2}")
 
-def sanitize_patch_text(text):
+# ===== Patch sanitation =====
+FENCE_RE = re.compile(r"^```(?:diff|patch)?\s*$", re.IGNORECASE)
+
+def sanitize_patch_text(text: str) -> str:
     t = text.strip()
-    if t.startswith("```"):
-        t = t.strip("`")
-        t = t.split("\n", 1)[1] if "\n" in t else ""
+
+    # Remove code fences if present
+    lines = t.splitlines()
+    if lines and FENCE_RE.match(lines[0]):
+        # find closing fence
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "```":
+                t = "\n".join(lines[1:i])
+                break
+
+    # Extract between markers if provided
+    begin = t.find("<BEGIN_PATCH>")
+    end = t.find("<END_PATCH>")
+    if begin != -1 and end != -1 and end > begin:
+        t = t[begin + len("<BEGIN_PATCH>"):end].strip()
+
+    # Trim any leading preamble before first diff header
+    idx_diff = t.find("diff --git ")
+    idx_unified = t.find("\n--- ")
+    idx_unified_start = t.find("--- ")  # in case it starts right away
+
+    starts = [i for i in [idx_diff, idx_unified if idx_unified != -1 else None, idx_unified_start] if i is not None and i != -1]
+    if starts:
+        start_at = min(starts)
+        t = t[start_at:].lstrip()
+
     return t
 
 def _clean_patch_whitespace(raw_text: str) -> str:
-    # Strip trailing spaces/tabs per line and ensure final newline
     clean_lines = [line.rstrip() for line in raw_text.splitlines()]
     return "\n".join(clean_lines) + "\n"
+
+def _looks_like_diff(text: str) -> bool:
+    return ("diff --git " in text) or (("--- " in text) and ("+++ " in text))
 
 def apply_patch(patch_text):
     # Sanitize, clean trailing whitespace, validate, apply with --whitespace=fix
     text = sanitize_patch_text(patch_text)
+    if not _looks_like_diff(text):
+        return False, "No diff headers detected after sanitization."
 
-    # Require diff headers
-    if ("--- " not in text) or ("+++ " not in text):
-        return False, "Model did not return a unified diff."
-
-    # Clean trailing whitespace and ensure newline
     cleaned_text = _clean_patch_whitespace(text)
 
-    # Validate patch structure after cleaning
     try:
         PatchSet(cleaned_text)
     except Exception as e:
@@ -234,7 +229,6 @@ def apply_patch(patch_text):
         f.write(cleaned_text)
         patch_path = f.name
 
-    # Use --whitespace=fix so git can auto-correct any minor whitespace issues
     ap = git(["apply", "--whitespace=fix", "--index", patch_path])
     if ap.returncode != 0:
         return False, ap.stderr
@@ -248,14 +242,18 @@ def apply_patch(patch_text):
 def project_context_blob():
     return collect_full_context() if CONTEXT_MODE == "full" else collect_diff_context()
 
-def ask_for_change_patch(model_name, change_instructions):
-    allow = ", ".join(sorted(ALLOWLIST))
+def _change_prompt(strict: bool, allow: str, change_instructions: str) -> tuple[str, str]:
     system = (
         "You are a senior Java engineer working on a Bukkit/Paper/Velocity plugin. "
-        "You will receive high-level change instructions. "
-        "Return ONLY a valid git unified diff (no backticks, no commentary). "
-        "Avoid trailing whitespace. Ensure the patch applies with `git apply`."
+        "Return ONLY a valid git patch. Avoid trailing whitespace. Ensure `git apply` succeeds."
     )
+    fmt_help = (
+        "Output ONLY the patch, no prose. Start with 'diff --git a/...' lines "
+        "and unified hunks '@@ -x,y +x,y @@'."
+        if strict else
+        "Output ONLY a unified diff patch (---/+++ with @@ hunks) or 'diff --git' format."
+    )
+    markers = "\n<BEGIN_PATCH>\n{patch}\n<END_PATCH>\n" if strict else "\n{patch}\n"
     user = f"""Repository root: {WATCH_DIR}
 Allowed file extensions: {allow}
 
@@ -267,25 +265,25 @@ High-level change request:
 Project context (truncated by byte cap):
 {project_context_blob()}
 
-Output format requirements:
-- Strict unified diff with ---/+++ headers and @@ hunks.
-- No prose explanations.
-"""
-    resp = client.responses.create(
-        model=model_name,
-        input=[{"role":"system","content":system},
-               {"role":"user","content":user}],
-        reasoning={"effort":"high"}
-    )
-    return resp.output_text, getattr(resp, "model", model_name)
+Format:
+- {fmt_help}
+- Do not include yaml, markdown, or explanations.
+- Use paths relative to the repo root.
+{markers}""".replace("{patch}", "(patch here)")
+    return system, user
 
-def ask_for_fix_patch(model_name, failure_text):
-    allow = ", ".join(sorted(ALLOWLIST))
+def _fix_prompt(strict: bool, allow: str, failure_text: str) -> tuple[str, str]:
     system = (
         "You are a senior Java engineer. "
-        "Given the current build/test failure, return ONLY a git unified diff that fixes the issue. "
-        "Avoid trailing whitespace. Ensure the patch applies with `git apply`."
+        "Return ONLY a valid git patch that fixes the build/test failure. "
+        "Avoid trailing whitespace. Ensure `git apply` succeeds."
     )
+    fmt_help = (
+        "Output ONLY the patch, starting with 'diff --git a/...' and unified hunks."
+        if strict else
+        "Output ONLY a unified diff (---/+++ with @@ hunks) or 'diff --git' format."
+    )
+    markers = "\n<BEGIN_PATCH>\n{patch}\n<END_PATCH>\n" if strict else "\n{patch}\n"
     user = f"""Repository root: {WATCH_DIR}
 Allowed file extensions: {allow}
 
@@ -297,8 +295,27 @@ Latest build/test failure:
 Project context (truncated by byte cap):
 {project_context_blob()}
 
-Output: unified diff with ---/+++ and @@ hunks; no commentary.
-"""
+Format:
+- {fmt_help}
+- Do not include yaml, markdown, or explanations.
+- Use paths relative to the repo root.
+{markers}""".replace("{patch}", "(patch here)")
+    return system, user
+
+def ask_for_change_patch(model_name, change_instructions, strict=False):
+    allow = ", ".join(sorted(ALLOWLIST))
+    system, user = _change_prompt(strict, allow, change_instructions)
+    resp = client.responses.create(
+        model=model_name,
+        input=[{"role":"system","content":system},
+               {"role":"user","content":user}],
+        reasoning={"effort":"high"}
+    )
+    return resp.output_text, getattr(resp, "model", model_name)
+
+def ask_for_fix_patch(model_name, failure_text, strict=False):
+    allow = ", ".join(sorted(ALLOWLIST))
+    system, user = _fix_prompt(strict, allow, failure_text)
     resp = client.responses.create(
         model=model_name,
         input=[{"role":"system","content":system},
@@ -306,6 +323,30 @@ Output: unified diff with ---/+++ and @@ hunks; no commentary.
         reasoning={"effort":"medium"}
     )
     return resp.output_text, getattr(resp, "model", model_name)
+
+def request_with_retries(request_fn, model_names, *args):
+    """
+    Try (model, strict=False), then (same model, strict=True),
+    then fallback model with strict=True. Returns (text, used_model) or (None, None).
+    """
+    # model_names = [primary, fallback]
+    # 1) primary, loose
+    text, used = request_fn(model_names[0], *args, False)
+    if text and _looks_like_diff(sanitize_patch_text(text)):
+        return text, used
+
+    # 2) primary, strict
+    text, used = request_fn(model_names[0], *args, True)
+    if text and _looks_like_diff(sanitize_patch_text(text)):
+        return text, used
+
+    # 3) fallback, strict
+    if len(model_names) > 1 and model_names[1]:
+        text, used = request_fn(model_names[1], *args, True)
+        if text and _looks_like_diff(sanitize_patch_text(text)):
+            return text, used
+
+    return None, None
 
 # ===== Interactive flow =====
 def read_multiline_prompt():
@@ -340,21 +381,23 @@ def main():
             print(base.stderr)
 
     print(f"\nRequesting change patch from model: {MODEL}")
-    patch, used_model = ask_for_change_patch(MODEL, change_instructions)
+    patch, used_model = request_with_retries(
+        ask_for_change_patch,
+        [MODEL, FALLBACK_MODEL],
+        change_instructions
+    )
+    if not patch:
+        print("Failed to obtain a valid patch from the models.")
+        sys.exit(2)
+
     print(f"Model used: {used_model}")
     ok, msg = apply_patch(patch)
-    if not ok and MODEL != FALLBACK_MODEL:
-        print("Change patch failed to apply with mini model. Retrying with fallback model...")
-        patch2, used_model2 = ask_for_change_patch(FALLBACK_MODEL, change_instructions)
-        print(f"Model used: {used_model2}")
-        ok, msg = apply_patch(patch2)
-
     if not ok:
         print("Failed to apply initial change patch:", msg)
         sys.exit(2)
 
     attempt = 0
-    current_model = MODEL
+    current_order = [MODEL, FALLBACK_MODEL]
     while True:
         result = run_tests()
         if result.returncode == 0:
@@ -363,32 +406,32 @@ def main():
             break
 
         attempt += 1
+        if attempt > MAX_FIX_ATTEMPTS:
+            print("Reached maximum auto-fix attempts. Leaving last commit in place for review.")
+            break
+
         print(f"\n❌ Build/tests failing (attempt {attempt}/{MAX_FIX_ATTEMPTS}). Requesting fix patch...")
         print("---- build stdout ----")
         print(result.stdout)
         print("---- build stderr ----")
         print(result.stderr)
 
-        patch, used_model = ask_for_fix_patch(current_model, result.stdout + "\n" + result.stderr)
-        print(f"Model used: {used_model}")
-        ok, msg = apply_patch(patch)
-        if not ok:
-            if current_model != FALLBACK_MODEL:
-                print("Patch apply failed with mini model. Escalating to fallback model and retrying...")
-                current_model = FALLBACK_MODEL
-                patch2, used_model2 = ask_for_fix_patch(current_model, result.stdout + "\n" + result.stderr)
-                print(f"Model used: {used_model2}")
-                ok, msg = apply_patch(patch2)
-                if not ok:
-                    print("Fallback patch also failed to apply:", msg)
-                    break
-            else:
-                print("Patch apply failed with fallback model:", msg)
-                break
-
-        if attempt >= MAX_FIX_ATTEMPTS:
-            print("Reached maximum auto-fix attempts. Leaving last commit in place for review.")
+        fix_patch, used_model = request_with_retries(
+            ask_for_fix_patch,
+            current_order,
+            result.stdout + "\n" + result.stderr
+        )
+        if not fix_patch:
+            print("Could not obtain a valid fix patch from the models.")
             break
+
+        print(f"Model used: {used_model}")
+        ok, msg = apply_patch(fix_patch)
+        if not ok:
+            print("Patch apply failed:", msg)
+            # swap priority for next round (try the other model first)
+            current_order = [current_order[1], current_order[0]]
+            continue
 
 if __name__ == "__main__":
     main()
