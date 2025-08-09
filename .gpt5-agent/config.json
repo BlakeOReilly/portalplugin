@@ -2,6 +2,7 @@
   "watch_dir": "D:\\Multiplayer Network\\portalplugin",
   "model": "gpt-5-mini",
   "fallback_model": "gpt-5",
+
   "allowlist_extensions": [
     ".java",
     ".kt",
@@ -13,11 +14,20 @@
     ".properties",
     ".md"
   ],
+
   "test_cmd": ["cmd", "/c", "gradle", "build"],
-  "max_context_bytes": 350000,
+
   "context_mode": "diff",
+  "max_context_bytes": 350000,
+
+  "extra_context_files": [
+    "src/main/resources/plugin.yml"
+  ],
+
   "max_fix_attempts": 3,
+  "max_patch_retries": 2,
   "initial_build": true,
+
   "auto_deploy": {
     "enabled": false,
     "plugins_dir": "D:\\Servers\\Paper\\plugins",

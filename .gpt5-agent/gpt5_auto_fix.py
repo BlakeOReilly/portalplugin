@@ -11,12 +11,13 @@ WATCH_DIR = Path(CFG["watch_dir"])
 MODEL = CFG.get("model", "gpt-5-mini")
 FALLBACK_MODEL = CFG.get("fallback_model", "gpt-5")
 ALLOWLIST = set(CFG.get("allowlist_extensions", [".java"]))
-TEST_CMD = CFG.get("test_cmd", ["cmd", "/c", ".\\gradlew.bat", "build"])  # default wrapper on Windows
+TEST_CMD = CFG.get("test_cmd", ["cmd", "/c", ".\\gradlew.bat", "build"])  # override in config.json if using system Gradle
 MAX_CONTEXT_BYTES = int(CFG.get("max_context_bytes", 350000))
 CONTEXT_MODE = CFG.get("context_mode", "diff")
 MAX_FIX_ATTEMPTS = int(CFG.get("max_fix_attempts", 3))
 INITIAL_BUILD = bool(CFG.get("initial_build", True))
 MAX_PATCH_RETRIES = int(CFG.get("max_patch_retries", 2))
+EXTRA_CONTEXT_FILES = CFG.get("extra_context_files", [])
 
 AUTO_DEPLOY = CFG.get("auto_deploy", {})
 DEPLOY_ENABLED = bool(AUTO_DEPLOY.get("enabled", False))
@@ -40,9 +41,14 @@ def _format_cmd_for_print(cmd):
     return " ".join(shlex.quote(str(x)) for x in cmd)
 
 def run(cmd, cwd=WATCH_DIR):
+    """Windows-friendly runner:
+    - Strings: shell=True
+    - Lists: .bat/.cmd and bare names via cmd /c
+    """
     try:
         if isinstance(cmd, str):
             return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, shell=True)
+
         if os.name == "nt":
             exe = cmd[0]
             exe_lower = exe.lower()
@@ -53,6 +59,7 @@ def run(cmd, cwd=WATCH_DIR):
                 needs_cmd = True
             if needs_cmd:
                 return subprocess.run(["cmd", "/c"] + cmd, cwd=str(cwd), capture_output=True, text=True, shell=False)
+
         return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, shell=False)
     except FileNotFoundError as e:
         msg = (
@@ -188,9 +195,7 @@ def sanitize_patch_text(text: str) -> str:
     return t
 
 def _normalize_line_endings(s: str) -> str:
-    # Convert CRLF/CR to LF (git apply expects consistent counts)
-    s = s.replace("\r\n", "\n").replace("\r", "\n")
-    return s
+    return s.replace("\r\n", "\n").replace("\r", "\n")
 
 def _clean_patch_whitespace(raw_text: str) -> str:
     clean_lines = [line.rstrip() for line in raw_text.splitlines()]
@@ -208,7 +213,6 @@ def _print_patch_failure(patch_path: str, stderr: str, note: str):
     if note:
         print("[note]")
         print(textwrap.shorten(note, width=1000, placeholder=" …"))
-    # Show .rej files if any
     rej_files = list(WATCH_DIR.rglob("*.rej"))
     if rej_files:
         print("[rejects] The following .rej files were created:")
@@ -227,31 +231,22 @@ def _write_temp_patch(text: str) -> str:
         return f.name
 
 def _try_git_apply_variants(patch_path: str):
-    # 1) tolerant: ignore space change, fix whitespace, add to index
     ap = git(["apply", "--ignore-space-change", "--whitespace=fix", "--index", patch_path])
     if ap.returncode == 0:
         return True, ""
-    # 2) 3-way merge attempt
     ap3 = git(["apply", "-3", "--whitespace=fix", "--index", patch_path])
     if ap3.returncode == 0:
         return True, ""
-    # 3) write rejects
     apr = git(["apply", "--whitespace=fix", "--reject", patch_path])
     if apr.returncode == 0:
-        # With --reject, patched files are modified in working tree but hunks may be rejected
         return True, "(applied with rejects; see .rej files)"
-    # Return the last stderr
     return False, apr.stderr or ap3.stderr or ap.stderr
 
 def apply_patch(patch_text):
-    """
-    Returns (ok: bool, msg: str, patch_path: str|None)
-    On success, prints changed files. On failure, prints temp patch path and stderr.
-    """
+    """Returns (ok: bool, msg: str, patch_path: str|None) and prints changed files on success."""
     text = sanitize_patch_text(patch_text)
     if not _looks_like_diff(text):
         return False, "No diff headers detected after sanitization.", None
-
     text = _normalize_line_endings(text)
     cleaned_text = _clean_patch_whitespace(text)
     patch_path = _write_temp_patch(cleaned_text)
@@ -261,7 +256,6 @@ def apply_patch(patch_text):
         _print_patch_failure(patch_path, err, "")
         return False, err or "git apply failed", patch_path
 
-    # If we got here, something applied; stage + commit everything changed
     cm = git(["commit","-m", f"AI patch {datetime.now().isoformat(timespec='seconds')}"])
     if cm.returncode != 0:
         _print_patch_failure(patch_path, cm.stderr, "")
@@ -272,10 +266,30 @@ def apply_patch(patch_text):
     print(changed if changed else "(no files?)")
     return True, "applied", patch_path
 
-# ===== Model prompts =====
+# ===== Context builder (UPDATED) =====
 def project_context_blob():
-    return collect_full_context() if CONTEXT_MODE == "full" else collect_diff_context()
+    """Builds the context sent to the model.
+    - Uses full workspace or just diff, depending on CONTEXT_MODE
+    - Always appends any EXTRA_CONTEXT_FILES (e.g., plugin.yml) to avoid hunk mismatches
+    - Respects MAX_CONTEXT_BYTES cap
+    """
+    base = collect_full_context() if CONTEXT_MODE == "full" else collect_diff_context()
+    parts = [base]
 
+    for rel in EXTRA_CONTEXT_FILES:
+        p = (WATCH_DIR / rel)
+        if p.exists() and p.is_file():
+            try:
+                content = p.read_text(encoding="utf-8", errors="replace")
+                parts.append(f"\n\n===== FILE (extra): {rel} =====\n{content}")
+            except Exception:
+                # ignore unreadable files silently
+                pass
+
+    blob = "".join(parts)
+    return blob[:MAX_CONTEXT_BYTES]
+
+# ===== Prompt builders & calls =====
 def _change_prompt(strict: bool, allow: str, change_instructions: str) -> tuple[str, str]:
     system = (
         "You are a senior Java engineer working on a Bukkit/Paper/Velocity plugin. "
@@ -387,7 +401,7 @@ def read_multiline_prompt():
     return "\n".join(lines).strip()
 
 def obtain_and_apply_patch(request_fn, model_order, *args):
-    for cycle in range(1, MAX_PATCH_RETRIES + 2):
+    for cycle in range(1, MAX_PATCH_RETRIES + 2):  # attempts
         patch, used_model = request_with_retries(request_fn, model_order, *args)
         if not patch:
             print(f"[patch] Could not obtain a valid patch on attempt {cycle}.")
