@@ -34,10 +34,68 @@ if not API_KEY:
 client = OpenAI(api_key=API_KEY)
 
 # ===== Utilities =====
-def run(cmd, cwd=WATCH_DIR):
+def _format_cmd_for_print(cmd):
     if isinstance(cmd, str):
-        return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, shell=True)
-    return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, shell=False)
+        return cmd
+    return " ".join(shlex.quote(str(x)) for x in cmd)
+
+def run(cmd, cwd=WATCH_DIR):
+    """
+    Executes a command with good Windows support:
+    - Strings use shell=True so PATH/built-ins work.
+    - Lists: on Windows, .bat/.cmd and bare names are run via `cmd /c`.
+    Provides clear diagnostics on FileNotFoundError.
+    """
+    try:
+        if isinstance(cmd, str):
+            return subprocess.run(
+                cmd,
+                cwd=str(cwd),
+                capture_output=True,
+                text=True,
+                shell=True
+            )
+
+        # List form
+        if os.name == "nt":
+            exe = cmd[0]
+            exe_lower = exe.lower()
+            needs_cmd = False
+
+            # If it's a batch/cmd script
+            if exe_lower.endswith(".bat") or exe_lower.endswith(".cmd"):
+                needs_cmd = True
+            # If it's a bare name (no path, no extension), let cmd resolve (e.g., "gradle", "mvn")
+            elif (not os.path.isabs(exe)) and (("." not in os.path.basename(exe))):
+                needs_cmd = True
+
+            if needs_cmd:
+                return subprocess.run(
+                    ["cmd", "/c"] + cmd,
+                    cwd=str(cwd),
+                    capture_output=True,
+                    text=True,
+                    shell=False
+                )
+
+        # POSIX or direct executable path
+        return subprocess.run(
+            cmd,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            shell=False
+        )
+
+    except FileNotFoundError as e:
+        msg = (
+            f"\n[run] FileNotFoundError launching command.\n"
+            f"  CWD: {cwd}\n"
+            f"  CMD: {_format_cmd_for_print(cmd)}\n"
+            f"  Hint: If you use Gradle wrapper, ensure gradlew.bat exists.\n"
+            f"        Otherwise set test_cmd to ['cmd','/c','gradle','build'] in config.json.\n"
+        )
+        raise FileNotFoundError(msg) from e
 
 def git(args):
     return run(["git"] + args, cwd=WATCH_DIR)
@@ -81,6 +139,8 @@ def collect_full_context():
 
 def run_tests():
     print("Running build/tests...")
+    # If TEST_CMD is a list and the first element is "gradlew.bat" or "gradlew", prefer running via cmd /c on Windows
+    # but run() already handles that; just call run(TEST_CMD).
     res = run(TEST_CMD)
     return res
 
@@ -103,7 +163,7 @@ def start_server_if_configured():
         return True
     if START_CMD:
         r = run(START_CMD, cwd=SERVER_DIR)
-        # Note: 'start' returns quickly; that's fine for our purposes
+        # 'start' returns quickly; that's fine
         return r.returncode == 0
     return False
 
@@ -246,6 +306,10 @@ def main():
         base = run_tests()
         if base.returncode != 0:
             print("Baseline build failed. The agent may address baseline failures during fix loop.")
+            print("---- build stdout ----")
+            print(base.stdout)
+            print("---- build stderr ----")
+            print(base.stderr)
 
     # Step 1: Implement the requested change
     print(f"\nRequesting change patch from model: {MODEL}")
@@ -274,11 +338,15 @@ def main():
 
         attempt += 1
         print(f"\n❌ Build/tests failing (attempt {attempt}/{MAX_FIX_ATTEMPTS}). Requesting fix patch...")
+        print("---- build stdout ----")
+        print(result.stdout)
+        print("---- build stderr ----")
+        print(result.stderr)
+
         patch, used_model = ask_for_fix_patch(current_model, result.stdout + "\n" + result.stderr)
         print(f"Model used: {used_model}")
         ok, msg = apply_patch(patch)
         if not ok:
-            # Escalate to fallback model if we were using mini
             if current_model != FALLBACK_MODEL:
                 print("Patch apply failed with mini model. Escalating to fallback model and retrying...")
                 current_model = FALLBACK_MODEL
