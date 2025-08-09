@@ -1,0 +1,29 @@
+{
+  "watch_dir": "D:\\Multiplayer Network\\portalplugin",
+  "model": "gpt-5-mini",
+  "fallback_model": "gpt-5",
+  "allowlist_extensions": [
+    ".java",
+    ".kt",
+    ".gradle",
+    ".kts",
+    ".xml",
+    ".yml",
+    ".yaml",
+    ".properties",
+    ".md"
+  ],
+  "test_cmd": ["gradlew.bat", "build"],
+  "max_context_bytes": 350000,
+  "context_mode": "diff",
+  "max_fix_attempts": 3,
+  "initial_build": true,
+  "auto_deploy": {
+    "enabled": false,
+    "plugins_dir": "D:\\Servers\\Paper\\plugins",
+    "jar_glob": "build\\libs\\*.jar",
+    "restart_mode": "none",
+    "server_dir": "D:\\Servers\\Paper",
+    "start_cmd": ["cmd", "/c", "start", "/D", "D:\\Servers\\Paper", "run.bat"]
+  }
+}
