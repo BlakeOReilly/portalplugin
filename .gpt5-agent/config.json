@@ -27,6 +27,7 @@
   "max_fix_attempts": 3,
   "max_patch_retries": 2,
   "initial_build": true,
+  "auto_cleanup_conflicts": true,
 
   "auto_deploy": {
     "enabled": false,

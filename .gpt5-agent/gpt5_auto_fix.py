@@ -18,6 +18,7 @@ MAX_FIX_ATTEMPTS = int(CFG.get("max_fix_attempts", 3))
 INITIAL_BUILD = bool(CFG.get("initial_build", True))
 MAX_PATCH_RETRIES = int(CFG.get("max_patch_retries", 2))
 EXTRA_CONTEXT_FILES = CFG.get("extra_context_files", [])
+AUTO_CLEAN = bool(CFG.get("auto_cleanup_conflicts", True))
 
 AUTO_DEPLOY = CFG.get("auto_deploy", {})
 DEPLOY_ENABLED = bool(AUTO_DEPLOY.get("enabled", False))
@@ -170,6 +171,26 @@ def deploy_and_restart_if_enabled():
         ok2 = start_server_if_configured()
         print(f"Server restart: kill_ok={ok1}, start_ok={ok2}")
 
+# ===== Conflict auto-clean =====
+def unmerged_files():
+    out = git(["diff", "--name-only", "--diff-filter=U"]).stdout
+    return [l.strip() for l in out.splitlines() if l.strip()]
+
+def cleanup_conflicts():
+    files = unmerged_files()
+    if files:
+        print(f"[git] Unmerged files detected: {files}")
+        print("[git] Auto-cleanup: abort merge (if any), reset to HEAD, remove .rej files")
+        git(["merge", "--abort"])
+        git(["reset", "--hard", "HEAD"])
+        try:
+            for rf in WATCH_DIR.rglob("*.rej"):
+                rf.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return True
+    return False
+
 # ===== Patch sanitation & diagnostics =====
 FENCE_RE = re.compile(r"^```(?:diff|patch)?\s*$", re.IGNORECASE)
 
@@ -243,7 +264,11 @@ def _try_git_apply_variants(patch_path: str):
     return False, apr.stderr or ap3.stderr or ap.stderr
 
 def apply_patch(patch_text):
-    """Returns (ok: bool, msg: str, patch_path: str|None) and prints changed files on success."""
+    """Returns (ok: bool, msg: str, patch_path: str|None). Prints changed files on success."""
+    # Optional pre-clean if repo is conflicted
+    if AUTO_CLEAN:
+        cleanup_conflicts()
+
     text = sanitize_patch_text(patch_text)
     if not _looks_like_diff(text):
         return False, "No diff headers detected after sanitization.", None
@@ -258,6 +283,21 @@ def apply_patch(patch_text):
 
     cm = git(["commit","-m", f"AI patch {datetime.now().isoformat(timespec='seconds')}"])
     if cm.returncode != 0:
+        note = cm.stderr or ""
+        if "unmerged files" in note.lower() and AUTO_CLEAN:
+            print("[git] Commit blocked by unmerged files. Attempting auto-clean and retry...")
+            if cleanup_conflicts():
+                # re-apply same patch, then commit
+                ok2, err2 = _try_git_apply_variants(patch_path)
+                if ok2:
+                    cm2 = git(["commit","-m", f"AI patch {datetime.now().isoformat(timespec='seconds')}"])
+                    if cm2.returncode == 0:
+                        changed = git(["diff", "--name-only", "HEAD~1", "HEAD"]).stdout.strip()
+                        print("✅ Patch applied and committed after auto-clean. Files changed:")
+                        print(changed if changed else "(no files?)")
+                        return True, "applied", patch_path
+                _print_patch_failure(patch_path, err2 if not ok2 else (cm2.stderr if 'cm2' in locals() and cm2.returncode != 0 else ""), "auto-clean retry failed")
+                return False, "commit failed after auto-clean retry", patch_path
         _print_patch_failure(patch_path, cm.stderr, "")
         return False, cm.stderr, patch_path
 
@@ -266,7 +306,7 @@ def apply_patch(patch_text):
     print(changed if changed else "(no files?)")
     return True, "applied", patch_path
 
-# ===== Context builder (UPDATED) =====
+# ===== Context builder (includes extra files) =====
 def project_context_blob():
     """Builds the context sent to the model.
     - Uses full workspace or just diff, depending on CONTEXT_MODE
@@ -275,7 +315,6 @@ def project_context_blob():
     """
     base = collect_full_context() if CONTEXT_MODE == "full" else collect_diff_context()
     parts = [base]
-
     for rel in EXTRA_CONTEXT_FILES:
         p = (WATCH_DIR / rel)
         if p.exists() and p.is_file():
@@ -283,9 +322,7 @@ def project_context_blob():
                 content = p.read_text(encoding="utf-8", errors="replace")
                 parts.append(f"\n\n===== FILE (extra): {rel} =====\n{content}")
             except Exception:
-                # ignore unreadable files silently
                 pass
-
     blob = "".join(parts)
     return blob[:MAX_CONTEXT_BYTES]
 
@@ -415,6 +452,10 @@ def obtain_and_apply_patch(request_fn, model_order, *args):
 
 def main():
     ensure_repo_clean_enough()
+
+    # Auto-clean any leftover conflicts before we start
+    if AUTO_CLEAN:
+        cleanup_conflicts()
 
     change_instructions = read_multiline_prompt()
     if not change_instructions:
