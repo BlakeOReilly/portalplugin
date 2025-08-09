@@ -13,7 +13,7 @@
     ".properties",
     ".md"
   ],
-  "test_cmd": ["cmd", "/c", ".\\gradlew.bat", "build"],
+  "test_cmd": ["cmd", "/c", "gradle", "build"],
   "max_context_bytes": 350000,
   "context_mode": "diff",
   "max_fix_attempts": 3,

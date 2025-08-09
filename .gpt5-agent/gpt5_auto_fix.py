@@ -12,7 +12,7 @@ WATCH_DIR = Path(CFG["watch_dir"])
 MODEL = CFG.get("model", "gpt-5-mini")
 FALLBACK_MODEL = CFG.get("fallback_model", "gpt-5")
 ALLOWLIST = set(CFG.get("allowlist_extensions", [".java"]))
-TEST_CMD = CFG.get("test_cmd", ["gradlew.bat", "build"])
+TEST_CMD = CFG.get("test_cmd", ["cmd", "/c", ".\\gradlew.bat", "build"])  # default wrapper on Windows
 MAX_CONTEXT_BYTES = int(CFG.get("max_context_bytes", 350000))
 CONTEXT_MODE = CFG.get("context_mode", "diff")
 MAX_FIX_ATTEMPTS = int(CFG.get("max_fix_attempts", 3))
@@ -93,7 +93,7 @@ def run(cmd, cwd=WATCH_DIR):
             f"  CWD: {cwd}\n"
             f"  CMD: {_format_cmd_for_print(cmd)}\n"
             f"  Hint: If you use Gradle wrapper, ensure gradlew.bat exists.\n"
-            f"        Otherwise set test_cmd to ['cmd','/c','gradle','build'] in config.json.\n"
+            f"        Otherwise the script can fall back to system Gradle.\n"
         )
         raise FileNotFoundError(msg) from e
 
@@ -137,11 +137,37 @@ def collect_full_context():
             total += len(chunk)
     return "".join(buf)
 
+def resolve_test_cmd():
+    """
+    Choose the best test/build command:
+    - If config explicitly set a command, use it.
+    - If first element refers to gradlew.* but file doesn't exist, fall back to system Gradle.
+    """
+    if isinstance(TEST_CMD, list) and TEST_CMD:
+        first = TEST_CMD[0].lower()
+        # If user asked for gradlew but it doesn't exist in the repo, fall back to gradle
+        if "gradlew" in first:
+            gradlew = WATCH_DIR / "gradlew.bat"
+            gradlew_sh = WATCH_DIR / "gradlew"
+            if not gradlew.exists() and not gradlew_sh.exists():
+                print("gradlew wrapper not found; falling back to system Gradle on PATH.")
+                return ["cmd", "/c", "gradle", "build"] if os.name == "nt" else ["gradle", "build"]
+        return TEST_CMD
+
+    # If nothing specified, auto-detect
+    gradlew = WATCH_DIR / "gradlew.bat"
+    gradlew_sh = WATCH_DIR / "gradlew"
+    if gradlew.exists() or gradlew_sh.exists():
+        return ["cmd", "/c", ".\\gradlew.bat", "build"] if os.name == "nt" else ["./gradlew", "build"]
+    return ["cmd", "/c", "gradle", "build"] if os.name == "nt" else ["gradle", "build"]
+
 def run_tests():
+    cmd = resolve_test_cmd()
     print("Running build/tests...")
-    # If TEST_CMD is a list and the first element is "gradlew.bat" or "gradlew", prefer running via cmd /c on Windows
-    # but run() already handles that; just call run(TEST_CMD).
-    res = run(TEST_CMD)
+    # Print the resolved command for debugging
+    print(f"[build] CWD: {WATCH_DIR}")
+    print(f"[build] CMD: {_format_cmd_for_print(cmd)}")
+    res = run(cmd)
     return res
 
 def newest_jar():
@@ -244,8 +270,7 @@ Output format requirements:
         model=model_name,
         input=[{"role":"system","content":system},
                {"role":"user","content":user}],
-        reasoning={"effort":"high"},
-        temperature=0.1
+        reasoning={"effort":"high"}  # no temperature for GPT-5 API
     )
     return resp.output_text, getattr(resp, "model", model_name)
 
@@ -273,8 +298,7 @@ Output: unified diff with ---/+++ and @@ hunks; no commentary.
         model=model_name,
         input=[{"role":"system","content":system},
                {"role":"user","content":user}],
-        reasoning={"effort":"medium"},
-        temperature=0.1
+        reasoning={"effort":"medium"}  # no temperature for GPT-5 API
     )
     return resp.output_text, getattr(resp, "model", model_name)
 
