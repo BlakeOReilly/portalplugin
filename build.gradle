@@ -1,0 +1,39 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.blake.portalplugin'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+}
+
+dependencies {
+    compileOnly 'io.papermc.paper:paper-api:1.20.6-R0.1-SNAPSHOT'
+}
+
+// ✅ Ensure Gradle uses Java 21 for compiling and running builds
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+        vendor = JvmVendorSpec.ADOPTIUM
+    }
+}
+
+// ✅ Optional: ensure source & target compatibility are Java 21
+tasks.withType(JavaCompile) {
+    sourceCompatibility = '21'
+    targetCompatibility = '21'
+    options.encoding = 'UTF-8'
+}
+
+// ✅ Optional: set the jar manifest (if needed)
+jar {
+    manifest {
+        attributes(
+                'Main-Class': 'com.blake.portalplugin.HubStatsPlugin'
+        )
+    }
+}

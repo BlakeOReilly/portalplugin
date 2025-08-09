@@ -1,0 +1,33 @@
+name: HubStatsPlugin
+main: com.blake.portalplugin.HubStatsPlugin
+version: 1.0
+api-version: 1.20
+description: Unified plugin for player stats, scoreboard, and game state management.
+author: Blake
+
+commands:
+  gamestate:
+    description: Change the current player's game state or check their current state.
+    usage: /gamestate <hub|modespleef|admin|check>
+    permission: hubstats.gamestate
+    aliases: [gs]
+  createsign:
+    description: Create a clickable game sign
+    usage: /<command>
+    permission: hubstats.createsign
+    default: op
+  saveblue:
+    description: Save all blue wool block locations for the Blue Spleef Arena
+  savered:
+    description: Save all red wool block locations for the Red Spleef Arena
+
+permissions:
+  hubstats.gamestate:
+    description: Allows use of /gamestate command.
+    default: op
+  hubstats.createsign:
+    description: Allows the player to create game signs
+    default: op
+  portalplugin.sign.use:
+    description: Allows players to use [Join] signs
+    default: true
