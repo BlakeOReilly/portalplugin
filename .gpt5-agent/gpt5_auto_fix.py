@@ -62,10 +62,8 @@ def run(cmd, cwd=WATCH_DIR):
             exe_lower = exe.lower()
             needs_cmd = False
 
-            # If it's a batch/cmd script
             if exe_lower.endswith(".bat") or exe_lower.endswith(".cmd"):
                 needs_cmd = True
-            # If it's a bare name (no path, no extension), let cmd resolve (e.g., "gradle", "mvn")
             elif (not os.path.isabs(exe)) and (("." not in os.path.basename(exe))):
                 needs_cmd = True
 
@@ -78,7 +76,6 @@ def run(cmd, cwd=WATCH_DIR):
                     shell=False
                 )
 
-        # POSIX or direct executable path
         return subprocess.run(
             cmd,
             cwd=str(cwd),
@@ -104,9 +101,7 @@ def ensure_repo_clean_enough():
     if git(["rev-parse","--is-inside-work-tree"]).returncode != 0:
         print("ERROR: Not a git repository. Run `git init` in the project root first.")
         sys.exit(1)
-    # Stage anything untracked so the model sees a stable diff context
     git(["add","."])
-    # Commit if there are changes
     if git(["status","--porcelain"]).stdout.strip():
         git(["commit","-m","checkpoint before AI change"])
 
@@ -145,7 +140,6 @@ def resolve_test_cmd():
     """
     if isinstance(TEST_CMD, list) and TEST_CMD:
         first = TEST_CMD[0].lower()
-        # If user asked for gradlew but it doesn't exist in the repo, fall back to gradle
         if "gradlew" in first:
             gradlew = WATCH_DIR / "gradlew.bat"
             gradlew_sh = WATCH_DIR / "gradlew"
@@ -154,7 +148,6 @@ def resolve_test_cmd():
                 return ["cmd", "/c", "gradle", "build"] if os.name == "nt" else ["gradle", "build"]
         return TEST_CMD
 
-    # If nothing specified, auto-detect
     gradlew = WATCH_DIR / "gradlew.bat"
     gradlew_sh = WATCH_DIR / "gradlew"
     if gradlew.exists() or gradlew_sh.exists():
@@ -164,14 +157,12 @@ def resolve_test_cmd():
 def run_tests():
     cmd = resolve_test_cmd()
     print("Running build/tests...")
-    # Print the resolved command for debugging
     print(f"[build] CWD: {WATCH_DIR}")
     print(f"[build] CMD: {_format_cmd_for_print(cmd)}")
     res = run(cmd)
     return res
 
 def newest_jar():
-    # Accept either absolute glob or relative to project root
     pattern_path = (WATCH_DIR / JAR_GLOB) if not os.path.isabs(JAR_GLOB) else Path(JAR_GLOB)
     jars = sorted(pattern_path.parent.glob(pattern_path.name), key=os.path.getmtime, reverse=True)
     return jars[0] if jars else None
@@ -189,7 +180,6 @@ def start_server_if_configured():
         return True
     if START_CMD:
         r = run(START_CMD, cwd=SERVER_DIR)
-        # 'start' returns quickly; that's fine
         return r.returncode == 0
     return False
 
@@ -214,26 +204,41 @@ def deploy_and_restart_if_enabled():
 def sanitize_patch_text(text):
     t = text.strip()
     if t.startswith("```"):
-        # Strip code fences if present
         t = t.strip("`")
         t = t.split("\n", 1)[1] if "\n" in t else ""
     return t
 
+def _clean_patch_whitespace(raw_text: str) -> str:
+    # Strip trailing spaces/tabs per line and ensure final newline
+    clean_lines = [line.rstrip() for line in raw_text.splitlines()]
+    return "\n".join(clean_lines) + "\n"
+
 def apply_patch(patch_text):
+    # Sanitize, clean trailing whitespace, validate, apply with --whitespace=fix
     text = sanitize_patch_text(patch_text)
-    # Validate looks like a diff
+
+    # Require diff headers
     if ("--- " not in text) or ("+++ " not in text):
         return False, "Model did not return a unified diff."
+
+    # Clean trailing whitespace and ensure newline
+    cleaned_text = _clean_patch_whitespace(text)
+
+    # Validate patch structure after cleaning
     try:
-        PatchSet(text)
+        PatchSet(cleaned_text)
     except Exception as e:
-        return False, f"Invalid patch format: {e}"
+        return False, f"Invalid patch format after cleanup: {e}"
+
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".patch", encoding="utf-8") as f:
-        f.write(text)
+        f.write(cleaned_text)
         patch_path = f.name
-    ap = git(["apply","--index",patch_path])
+
+    # Use --whitespace=fix so git can auto-correct any minor whitespace issues
+    ap = git(["apply", "--whitespace=fix", "--index", patch_path])
     if ap.returncode != 0:
         return False, ap.stderr
+
     cm = git(["commit","-m", f"AI patch {datetime.now().isoformat(timespec='seconds')}"])
     if cm.returncode != 0:
         return False, cm.stderr
@@ -249,7 +254,7 @@ def ask_for_change_patch(model_name, change_instructions):
         "You are a senior Java engineer working on a Bukkit/Paper/Velocity plugin. "
         "You will receive high-level change instructions. "
         "Return ONLY a valid git unified diff (no backticks, no commentary). "
-        "Make minimal, compilable edits across any necessary files, but only within the allowed extensions."
+        "Avoid trailing whitespace. Ensure the patch applies with `git apply`."
     )
     user = f"""Repository root: {WATCH_DIR}
 Allowed file extensions: {allow}
@@ -270,7 +275,7 @@ Output format requirements:
         model=model_name,
         input=[{"role":"system","content":system},
                {"role":"user","content":user}],
-        reasoning={"effort":"high"}  # no temperature for GPT-5 API
+        reasoning={"effort":"high"}
     )
     return resp.output_text, getattr(resp, "model", model_name)
 
@@ -279,7 +284,7 @@ def ask_for_fix_patch(model_name, failure_text):
     system = (
         "You are a senior Java engineer. "
         "Given the current build/test failure, return ONLY a git unified diff that fixes the issue. "
-        "No explanations. Keep changes minimal and compilable. Respect the allowlist."
+        "Avoid trailing whitespace. Ensure the patch applies with `git apply`."
     )
     user = f"""Repository root: {WATCH_DIR}
 Allowed file extensions: {allow}
@@ -298,7 +303,7 @@ Output: unified diff with ---/+++ and @@ hunks; no commentary.
         model=model_name,
         input=[{"role":"system","content":system},
                {"role":"user","content":user}],
-        reasoning={"effort":"medium"}  # no temperature for GPT-5 API
+        reasoning={"effort":"medium"}
     )
     return resp.output_text, getattr(resp, "model", model_name)
 
@@ -325,7 +330,6 @@ def main():
         print("No change instructions provided. Exiting.")
         return
 
-    # Initial optional build to capture baseline failures
     if INITIAL_BUILD:
         base = run_tests()
         if base.returncode != 0:
@@ -335,7 +339,6 @@ def main():
             print("---- build stderr ----")
             print(base.stderr)
 
-    # Step 1: Implement the requested change
     print(f"\nRequesting change patch from model: {MODEL}")
     patch, used_model = ask_for_change_patch(MODEL, change_instructions)
     print(f"Model used: {used_model}")
@@ -350,7 +353,6 @@ def main():
         print("Failed to apply initial change patch:", msg)
         sys.exit(2)
 
-    # Step 2: Build and auto-fix loop until green or attempts exhausted
     attempt = 0
     current_model = MODEL
     while True:
