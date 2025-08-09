@@ -1,4 +1,4 @@
-import os, sys, json, time, glob, shlex, tempfile, subprocess, re
+import os, sys, json, time, glob, shlex, tempfile, subprocess, re, textwrap
 from pathlib import Path
 from datetime import datetime
 from unidiff import PatchSet
@@ -17,7 +17,7 @@ MAX_CONTEXT_BYTES = int(CFG.get("max_context_bytes", 350000))
 CONTEXT_MODE = CFG.get("context_mode", "diff")
 MAX_FIX_ATTEMPTS = int(CFG.get("max_fix_attempts", 3))
 INITIAL_BUILD = bool(CFG.get("initial_build", True))
-MAX_PATCH_RETRIES = 2  # additional retries with stricter prompt if patch invalid
+MAX_PATCH_RETRIES = int(CFG.get("max_patch_retries", 2))  # new: retries when patch is malformed
 
 AUTO_DEPLOY = CFG.get("auto_deploy", {})
 DEPLOY_ENABLED = bool(AUTO_DEPLOY.get("enabled", False))
@@ -172,7 +172,7 @@ def deploy_and_restart_if_enabled():
         ok2 = start_server_if_configured()
         print(f"Server restart: kill_ok={ok1}, start_ok={ok2}")
 
-# ===== Patch sanitation =====
+# ===== Patch sanitation & diagnostics =====
 FENCE_RE = re.compile(r"^```(?:diff|patch)?\s*$", re.IGNORECASE)
 
 def sanitize_patch_text(text: str) -> str:
@@ -181,7 +181,6 @@ def sanitize_patch_text(text: str) -> str:
     # Remove code fences if present
     lines = t.splitlines()
     if lines and FENCE_RE.match(lines[0]):
-        # find closing fence
         for i in range(1, len(lines)):
             if lines[i].strip() == "```":
                 t = "\n".join(lines[1:i])
@@ -196,8 +195,7 @@ def sanitize_patch_text(text: str) -> str:
     # Trim any leading preamble before first diff header
     idx_diff = t.find("diff --git ")
     idx_unified = t.find("\n--- ")
-    idx_unified_start = t.find("--- ")  # in case it starts right away
-
+    idx_unified_start = t.find("--- ")
     starts = [i for i in [idx_diff, idx_unified if idx_unified != -1 else None, idx_unified_start] if i is not None and i != -1]
     if starts:
         start_at = min(starts)
@@ -212,18 +210,37 @@ def _clean_patch_whitespace(raw_text: str) -> str:
 def _looks_like_diff(text: str) -> bool:
     return ("diff --git " in text) or (("--- " in text) and ("+++ " in text))
 
+def _print_patch_failure(patch_path: str, stderr: str, note: str):
+    print("❌ Patch apply failed.")
+    print(f"[patch] Saved to: {patch_path}")
+    if stderr:
+        print("[git apply stderr]")
+        print(stderr.strip()[:2000])
+    if note:
+        print("[note]")
+        print(textwrap.shorten(note, width=1000, placeholder=" …"))
+
 def apply_patch(patch_text):
-    # Sanitize, clean trailing whitespace, validate, apply with --whitespace=fix
+    """
+    Returns (ok: bool, msg: str, patch_path: str|None)
+    On success, prints changed files. On failure, prints temp patch path and stderr.
+    """
     text = sanitize_patch_text(patch_text)
     if not _looks_like_diff(text):
-        return False, "No diff headers detected after sanitization."
+        return False, "No diff headers detected after sanitization.", None
 
     cleaned_text = _clean_patch_whitespace(text)
 
+    # Validate patch structure after cleaning
     try:
         PatchSet(cleaned_text)
     except Exception as e:
-        return False, f"Invalid patch format after cleanup: {e}"
+        # Still write patch file for debugging
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".patch", encoding="utf-8") as f:
+            f.write(cleaned_text)
+            ppath = f.name
+        _print_patch_failure(ppath, "", f"Invalid patch format after cleanup: {e}")
+        return False, f"Invalid patch format after cleanup: {e}", ppath
 
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".patch", encoding="utf-8") as f:
         f.write(cleaned_text)
@@ -231,12 +248,19 @@ def apply_patch(patch_text):
 
     ap = git(["apply", "--whitespace=fix", "--index", patch_path])
     if ap.returncode != 0:
-        return False, ap.stderr
+        _print_patch_failure(patch_path, ap.stderr, "")
+        return False, ap.stderr, patch_path
 
     cm = git(["commit","-m", f"AI patch {datetime.now().isoformat(timespec='seconds')}"])
     if cm.returncode != 0:
-        return False, cm.stderr
-    return True, "applied"
+        _print_patch_failure(patch_path, cm.stderr, "")
+        return False, cm.stderr, patch_path
+
+    # Print changed files
+    changed = git(["diff", "--name-only", "HEAD~1", "HEAD"]).stdout.strip()
+    print("✅ Patch applied and committed. Files changed:")
+    print(changed if changed else "(no files?)")
+    return True, "applied", patch_path
 
 # ===== Model prompts =====
 def project_context_blob():
@@ -248,8 +272,7 @@ def _change_prompt(strict: bool, allow: str, change_instructions: str) -> tuple[
         "Return ONLY a valid git patch. Avoid trailing whitespace. Ensure `git apply` succeeds."
     )
     fmt_help = (
-        "Output ONLY the patch, no prose. Start with 'diff --git a/...' lines "
-        "and unified hunks '@@ -x,y +x,y @@'."
+        "Output ONLY the patch, starting with 'diff --git a/... b/...' and unified hunks '@@ -x,y +x,y @@'."
         if strict else
         "Output ONLY a unified diff patch (---/+++ with @@ hunks) or 'diff --git' format."
     )
@@ -279,7 +302,7 @@ def _fix_prompt(strict: bool, allow: str, failure_text: str) -> tuple[str, str]:
         "Avoid trailing whitespace. Ensure `git apply` succeeds."
     )
     fmt_help = (
-        "Output ONLY the patch, starting with 'diff --git a/...' and unified hunks."
+        "Output ONLY the patch, starting with 'diff --git a/... b/...' and unified hunks."
         if strict else
         "Output ONLY a unified diff (---/+++ with @@ hunks) or 'diff --git' format."
     )
@@ -329,23 +352,19 @@ def request_with_retries(request_fn, model_names, *args):
     Try (model, strict=False), then (same model, strict=True),
     then fallback model with strict=True. Returns (text, used_model) or (None, None).
     """
-    # model_names = [primary, fallback]
     # 1) primary, loose
     text, used = request_fn(model_names[0], *args, False)
     if text and _looks_like_diff(sanitize_patch_text(text)):
         return text, used
-
     # 2) primary, strict
     text, used = request_fn(model_names[0], *args, True)
     if text and _looks_like_diff(sanitize_patch_text(text)):
         return text, used
-
     # 3) fallback, strict
     if len(model_names) > 1 and model_names[1]:
         text, used = request_fn(model_names[1], *args, True)
         if text and _looks_like_diff(sanitize_patch_text(text)):
             return text, used
-
     return None, None
 
 # ===== Interactive flow =====
@@ -362,6 +381,23 @@ def read_multiline_prompt():
             break
         lines.append(line)
     return "\n".join(lines).strip()
+
+def obtain_and_apply_patch(request_fn, model_order, *args):
+    """
+    Obtains a patch with retries and applies it, with extra retries on apply/format errors.
+    Returns True if applied.
+    """
+    for cycle in range(1, MAX_PATCH_RETRIES + 2):  # e.g., 1..(2+1)=3 attempts
+        patch, used_model = request_with_retries(request_fn, model_order, *args)
+        if not patch:
+            print(f"[patch] Could not obtain a valid patch on attempt {cycle}.")
+            continue
+        print(f"Model used: {used_model}")
+        ok, msg, _ = apply_patch(patch)
+        if ok:
+            return True
+        print(f"[patch] Apply failed on attempt {cycle}: {msg}")
+    return False
 
 def main():
     ensure_repo_clean_enough()
@@ -381,19 +417,8 @@ def main():
             print(base.stderr)
 
     print(f"\nRequesting change patch from model: {MODEL}")
-    patch, used_model = request_with_retries(
-        ask_for_change_patch,
-        [MODEL, FALLBACK_MODEL],
-        change_instructions
-    )
-    if not patch:
-        print("Failed to obtain a valid patch from the models.")
-        sys.exit(2)
-
-    print(f"Model used: {used_model}")
-    ok, msg = apply_patch(patch)
-    if not ok:
-        print("Failed to apply initial change patch:", msg)
+    if not obtain_and_apply_patch(ask_for_change_patch, [MODEL, FALLBACK_MODEL], change_instructions):
+        print("Failed to apply the initial change after retries.")
         sys.exit(2)
 
     attempt = 0
@@ -416,22 +441,10 @@ def main():
         print("---- build stderr ----")
         print(result.stderr)
 
-        fix_patch, used_model = request_with_retries(
-            ask_for_fix_patch,
-            current_order,
-            result.stdout + "\n" + result.stderr
-        )
-        if not fix_patch:
-            print("Could not obtain a valid fix patch from the models.")
-            break
-
-        print(f"Model used: {used_model}")
-        ok, msg = apply_patch(fix_patch)
-        if not ok:
-            print("Patch apply failed:", msg)
-            # swap priority for next round (try the other model first)
-            current_order = [current_order[1], current_order[0]]
+        if obtain_and_apply_patch(ask_for_fix_patch, current_order, result.stdout + "\n" + result.stderr):
             continue
+        # swap order for next round
+        current_order = [current_order[1], current_order[0]]
 
 if __name__ == "__main__":
     main()
