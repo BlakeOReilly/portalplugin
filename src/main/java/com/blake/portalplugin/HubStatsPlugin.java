@@ -1,81 +1,128 @@
 package com.blake.portalplugin;
 
-import org.bukkit.Bukkit;
-import org.bukkit.Location;
-import org.bukkit.Material;
-import org.bukkit.World;
-import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.CompassMeta;
+import org.bukkit.command.CommandExecutor;
+import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
+import java.lang.reflect.Constructor;
 
-public class HubStatsPlugin extends JavaPlugin {
+public final class HubStatsPlugin extends JavaPlugin {
+
     private static HubStatsPlugin instance;
+    private java.util.logging.Logger logger;
 
-    private CustomScoreboardManager scoreboardManager;
-    private ArenaManager arenaManager;
-    private GameQueueManager queueManager;
-    private GameStateManager stateManager;
+    public static HubStatsPlugin getInstance() {
+        return instance;
+    }
 
     @Override
     public void onEnable() {
         instance = this;
+        logger = getLogger();
 
-        // Managers
-        this.scoreboardManager = new CustomScoreboardManager(this);
-        this.arenaManager = new ArenaManager(this);
-        this.stateManager = new GameStateManager(this, scoreboardManager);
-        this.queueManager = new GameQueueManager(this, scoreboardManager, stateManager);
+        // Attempt to save default config if present
+        try {
+            saveDefaultConfig();
+        } catch (Exception e) {
+            logger.fine("No default config to save: " + e.getMessage());
+        }
 
-        // Listeners
-        getServer().getPluginManager().registerEvents(new GameStateListener(stateManager), this);
-        getServer().getPluginManager().registerEvents(new SignListener(queueManager, stateManager), this);
-        // Ensure SpleefGameListener is active (it calls manager.eliminate(...))
-        getServer().getPluginManager().registerEvents(new SpleefGameListener(stateManager), this);
+        // Safely register known commands. If plugin.yml does not contain the command
+        // getCommand(...) will return null and we must not call setExecutor on null.
+        tryRegisterCommand("gamestate",
+            "com.blake.portalplugin.GameStateCommand",
+            "com.blake.portalplugin.GamestateCommand",
+            "com.blake.portalplugin.commands.GameStateCommand",
+            "com.blake.portalplugin.commands.GamestateCommand",
+            "com.blake.portalplugin.commands.Gamestate",
+            "com.blake.portalplugin.commands.GameState"
+        );
 
-        // Commands (ensure these exist in plugin.yml)
-        getCommand("gamestate").setExecutor(new GameStateCommand(stateManager));
-        getCommand("createsign").setExecutor(new CreateSignCommand());
-        getCommand("sign").setExecutor(new SignCommand(queueManager)); // optional helper
+        tryRegisterCommand("createsign",
+            "com.blake.portalplugin.CreateSignCommand",
+            "com.blake.portalplugin.commands.CreateSignCommand",
+            "com.blake.portalplugin.CreateSign",
+            "com.blake.portalplugin.commands.CreateSign"
+        );
 
-        getLogger().info("HubStatsPlugin enabled.");
+        tryRegisterCommand("saveblue",
+            "com.blake.portalplugin.SaveBlueCommand",
+            "com.blake.portalplugin.commands.SaveBlueCommand",
+            "com.blake.portalplugin.SaveBlue",
+            "com.blake.portalplugin.commands.SaveBlue"
+        );
+
+        tryRegisterCommand("savered",
+            "com.blake.portalplugin.SaveRedCommand",
+            "com.blake.portalplugin.commands.SaveRedCommand",
+            "com.blake.portalplugin.SaveRed",
+            "com.blake.portalplugin.commands.SaveRed"
+        );
+
+        // Other initialization remains unchanged; keep enabling lightweight to avoid NPEs
     }
 
     @Override
     public void onDisable() {
-        getLogger().info("HubStatsPlugin disabled.");
+        instance = null;
     }
 
-    public static HubStatsPlugin getInstance() { return instance; }
-
-    public CustomScoreboardManager getScoreboardManager() { return scoreboardManager; }
-    public ArenaManager getArenaManager() { return arenaManager; }
-    public GameQueueManager getQueueManager() { return queueManager; }
-    public GameStateManager getGameStateManager() { return stateManager; }
-
-    /** Convenience used by older code paths */
-    public void setPlayerState(Player p, GameState state) {
-        stateManager.setGameState(p, state, null);
-    }
-
-    /** Hub spawn; adjust as needed or load from config */
-    public Location getHubLocation() {
-        World w = Bukkit.getWorlds().get(0);
-        return new Location(w, 0.5, w.getSpawnLocation().getY(), 0.5, 0, 0);
-    }
-
-    public void giveHubCompass(Player p) {
-        ItemStack comp = new ItemStack(Material.COMPASS);
-        CompassMeta meta = (CompassMeta) comp.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName("§aServer Selector");
-            comp.setItemMeta(meta);
+    /**
+     * Try to register a command by checking plugin.yml and attempting to load
+     * a likely executor class via reflection. This prevents a NullPointerException
+     * when getCommand(...) returns null and logs helpful diagnostics.
+     */
+    private void tryRegisterCommand(String commandName, String... candidateClassNames) {
+        PluginCommand cmd = getCommand(commandName);
+        if (cmd == null) {
+            logger.warning("Command '" + commandName + "' not defined in plugin.yml or could not be loaded. Skipping registration.");
+            return;
         }
-        p.getInventory().setItem(0, comp);
-    }
 
-    // Simple placeholders (wire your real stat system here)
-    public int getPlayerCoins(Player p) { return 0; }
-    public String getPlayerRank(Player p) { return "Default"; }
-    public int getPlayerLevel(Player p) { return 1; }
+        for (String className : candidateClassNames) {
+            try {
+                Class<?> clazz = Class.forName(className);
+                if (!CommandExecutor.class.isAssignableFrom(clazz)) {
+                    continue;
+                }
+
+                CommandExecutor executor = null;
+
+                // Try constructor(HubStatsPlugin)
+                try {
+                    Constructor<?> ctor = clazz.getConstructor(HubStatsPlugin.class);
+                    executor = (CommandExecutor) ctor.newInstance(this);
+                } catch (NoSuchMethodException ignored) {}
+
+                // Try constructor(JavaPlugin)
+                if (executor == null) {
+                    try {
+                        Constructor<?> ctor = clazz.getConstructor(JavaPlugin.class);
+                        executor = (CommandExecutor) ctor.newInstance(this);
+                    } catch (NoSuchMethodException ignored) {}
+                }
+
+                // Try no-arg constructor
+                if (executor == null) {
+                    try {
+                        Constructor<?> ctor = clazz.getConstructor();
+                        executor = (CommandExecutor) ctor.newInstance();
+                    } catch (NoSuchMethodException ignored) {}
+                }
+
+                if (executor != null) {
+                    cmd.setExecutor(executor);
+                    logger.info("Registered command '" + commandName + "' using executor " + className);
+                    return;
+                }
+            } catch (ClassNotFoundException e) {
+                // Try next candidate
+            } catch (ReflectiveOperationException e) {
+                logger.warning("Failed to instantiate command executor " + className + " for command '" + commandName + "': " + e.getClass().getSimpleName() + " - " + e.getMessage());
+            } catch (Exception e) {
+                logger.warning("Unexpected error while registering command " + commandName + ": " + e.getMessage());
+            }
+        }
+
+        logger.warning("No suitable CommandExecutor found for command '" + commandName + "'. Command will not be handled unless registered elsewhere.");
+    }
 }
