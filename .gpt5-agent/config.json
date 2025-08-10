@@ -24,8 +24,10 @@
     "src/main/resources/plugin.yml"
   ],
 
+  "edit_mode": "ops",
   "max_fix_attempts": 3,
-  "max_patch_retries": 2,
+  "max_patch_retries": 1,
+  "max_model_calls_per_run": 6,
   "initial_build": true,
   "auto_cleanup_conflicts": true,
 

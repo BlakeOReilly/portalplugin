@@ -1,4 +1,4 @@
-import os, sys, json, time, glob, shlex, tempfile, subprocess, re, textwrap
+import os, sys, json, time, shlex, tempfile, subprocess, re, textwrap, difflib
 from pathlib import Path
 from datetime import datetime
 from openai import OpenAI
@@ -10,15 +10,17 @@ CFG = json.loads(Path(__file__).with_name("config.json").read_text(encoding="utf
 WATCH_DIR = Path(CFG["watch_dir"])
 MODEL = CFG.get("model", "gpt-5-mini")
 FALLBACK_MODEL = CFG.get("fallback_model", "gpt-5")
-ALLOWLIST = set(CFG.get("allowlist_extensions", [".java"]))
-TEST_CMD = CFG.get("test_cmd", ["cmd", "/c", ".\\gradlew.bat", "build"])  # override in config.json if using system Gradle
+ALLOWLIST = set(ext.lower() for ext in CFG.get("allowlist_extensions", [".java"]))
+TEST_CMD = CFG.get("test_cmd", ["cmd", "/c", ".\\gradlew.bat", "build"])
 MAX_CONTEXT_BYTES = int(CFG.get("max_context_bytes", 350000))
 CONTEXT_MODE = CFG.get("context_mode", "diff")
 MAX_FIX_ATTEMPTS = int(CFG.get("max_fix_attempts", 3))
+MAX_PATCH_RETRIES = int(CFG.get("max_patch_retries", 1))
 INITIAL_BUILD = bool(CFG.get("initial_build", True))
-MAX_PATCH_RETRIES = int(CFG.get("max_patch_retries", 2))
 EXTRA_CONTEXT_FILES = CFG.get("extra_context_files", [])
+EDIT_MODE = CFG.get("edit_mode", "ops")  # "ops" recommended; "patch" optional
 AUTO_CLEAN = bool(CFG.get("auto_cleanup_conflicts", True))
+MAX_MODEL_CALLS = int(CFG.get("max_model_calls_per_run", 6))
 
 AUTO_DEPLOY = CFG.get("auto_deploy", {})
 DEPLOY_ENABLED = bool(AUTO_DEPLOY.get("enabled", False))
@@ -34,6 +36,7 @@ if not API_KEY:
     sys.exit(1)
 
 client = OpenAI(api_key=API_KEY)
+_model_calls = 0  # guardrail
 
 # ===== Utilities =====
 def _format_cmd_for_print(cmd):
@@ -49,7 +52,6 @@ def run(cmd, cwd=WATCH_DIR):
     try:
         if isinstance(cmd, str):
             return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, shell=True)
-
         if os.name == "nt":
             exe = cmd[0]
             exe_lower = exe.lower()
@@ -60,7 +62,6 @@ def run(cmd, cwd=WATCH_DIR):
                 needs_cmd = True
             if needs_cmd:
                 return subprocess.run(["cmd", "/c"] + cmd, cwd=str(cwd), capture_output=True, text=True, shell=False)
-
         return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, shell=False)
     except FileNotFoundError as e:
         msg = (
@@ -191,9 +192,170 @@ def cleanup_conflicts():
         return True
     return False
 
-# ===== Patch sanitation & diagnostics =====
-FENCE_RE = re.compile(r"^```(?:diff|patch)?\s*$", re.IGNORECASE)
+# ===== Context builder (includes extra files) =====
+def project_context_blob():
+    """Builds context for the model, always appending EXTRA_CONTEXT_FILES."""
+    base = collect_full_context() if CONTEXT_MODE == "full" else collect_diff_context()
+    parts = [base]
+    for rel in EXTRA_CONTEXT_FILES:
+        p = (WATCH_DIR / rel)
+        if p.exists() and p.is_file():
+            try:
+                content = p.read_text(encoding="utf-8", errors="replace")
+                parts.append(f"\n\n===== FILE (extra): {rel} =====\n{content}")
+            except Exception:
+                pass
+    blob = "".join(parts)
+    return blob[:MAX_CONTEXT_BYTES]
 
+# ===== Diff helpers for pretty output =====
+def _preview_diff(path: Path, before: str, after: str, n=3) -> str:
+    a = before.splitlines(keepends=False)
+    b = after.splitlines(keepends=False)
+    diff = difflib.unified_diff(a, b, fromfile=f"a/{path}", tofile=f"b/{path}", n=n)
+    lines = list(diff)
+    return "\n".join(lines[:200])
+
+# ===== Model wrappers with guardrail =====
+def _call_model(*, system: str, user: str, effort: str, model_name: str):
+    global _model_calls
+    if _model_calls >= MAX_MODEL_CALLS:
+        raise RuntimeError(f"Model call limit reached for this run ({MAX_MODEL_CALLS}).")
+    resp = client.responses.create(
+        model=model_name,
+        input=[{"role":"system","content":system}, {"role":"user","content":user}],
+        reasoning={"effort": effort}
+    )
+    _model_calls += 1
+    return resp.output_text, getattr(resp, "model", model_name)
+
+# ===== OPS MODE (recommended) =====
+# The model returns JSON like:
+# {"edits":[ {"path":"src/main/resources/plugin.yml","action":"replace","content":"<full file content>"},
+#            {"path":"src/main/java/..../Foo.java","action":"replace","content":"..."} ]}
+OPS_SCHEMA_HELP = """Return ONLY valid minified JSON, no markdown, no comments.
+Schema:
+{"edits":[{"path":"<relative file path>","action":"replace","content":"< ENTIRE final file content >"}]}
+Rules:
+- Only use paths within the repository root.
+- Only edit files with these extensions: %ALLOWLIST%.
+- Always provide the FULL final content for each file you touch.
+- For YAML/props/resources, write the complete, coherent file.
+- Do not include diff formats, backticks, or explanations.
+"""
+
+def _ops_change_prompt(change_instructions: str) -> tuple[str,str]:
+    allow = ", ".join(sorted(ALLOWLIST))
+    system = (
+        "You are a senior Java engineer working on a Bukkit/Paper/Velocity plugin.\n"
+        "When asked to make a change, output a JSON list of file replacements (FULL file contents), not a diff."
+    )
+    user = f"""Repository root: {WATCH_DIR}
+Allowed file extensions: {allow}
+
+High-level change request:
+---
+{change_instructions}
+---
+
+Project context (truncated by byte cap):
+{project_context_blob()}
+
+{OPS_SCHEMA_HELP.replace("%ALLOWLIST%", allow)}
+"""
+    return system, user
+
+def _ops_fix_prompt(failure_text: str) -> tuple[str,str]:
+    allow = ", ".join(sorted(ALLOWLIST))
+    system = (
+        "You are a senior Java engineer. Fix the build/test failure by returning JSON file replacements "
+        "(FULL file contents), not diffs."
+    )
+    user = f"""Repository root: {WATCH_DIR}
+Allowed file extensions: {allow}
+
+Latest build/test failure (stdout+stderr):
+---
+{failure_text}
+---
+
+Project context (truncated by byte cap):
+{project_context_blob()}
+
+{OPS_SCHEMA_HELP.replace("%ALLOWLIST%", allow)}
+"""
+    return system, user
+
+def _parse_ops_json(text: str):
+    # Remove code fences if any, then parse JSON
+    t = text.strip()
+    if t.startswith("```"):
+        # crude fence strip
+        t = t.strip("`")
+        nl = t.find("\n")
+        if nl != -1:
+            t = t[nl+1:]
+    # Sometimes models wrap in <BEGIN_JSON>...</END_JSON> — strip if present
+    b = t.find("{")
+    e = t.rfind("}")
+    if b == -1 or e == -1:
+        raise ValueError("No JSON object detected in response.")
+    t = t[b:e+1]
+    data = json.loads(t)
+    if not isinstance(data, dict) or "edits" not in data or not isinstance(data["edits"], list):
+        raise ValueError("JSON missing 'edits' array.")
+    return data
+
+def _is_allowed_target(path_str: str) -> bool:
+    try:
+        p = (WATCH_DIR / path_str).resolve()
+        # ensure inside repo
+        if WATCH_DIR not in p.parents and p != WATCH_DIR:
+            return False
+        if not p.suffix:
+            return False
+        return p.suffix.lower() in ALLOWLIST
+    except Exception:
+        return False
+
+def _apply_ops(data: dict) -> list[Path]:
+    changed_paths = []
+    for edit in data["edits"]:
+        path = edit.get("path","").replace("/", os.sep)
+        action = edit.get("action","").lower()
+        content = edit.get("content", None)
+        if action != "replace" or not content or not path:
+            raise ValueError(f"Invalid edit entry: {edit}")
+        if not _is_allowed_target(path):
+            raise ValueError(f"Disallowed or unsafe path: {path}")
+        abs_path = (WATCH_DIR / path)
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        before = ""
+        if abs_path.exists():
+            try:
+                before = abs_path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                before = ""
+        abs_path.write_text(content, encoding="utf-8")
+        changed_paths.append(abs_path)
+
+        # Show mini preview diff to console
+        preview = _preview_diff(abs_path.relative_to(WATCH_DIR), before, content)
+        if preview:
+            print("---- preview diff ----")
+            print(preview)
+    return changed_paths
+
+def ask_for_change_ops(change_instructions: str, model_name: str):
+    system, user = _ops_change_prompt(change_instructions)
+    return _call_model(system=system, user=user, effort="high", model_name=model_name)
+
+def ask_for_fix_ops(failure_text: str, model_name: str):
+    system, user = _ops_fix_prompt(failure_text)
+    return _call_model(system=system, user=user, effort="medium", model_name=model_name)
+
+# ===== PATCH MODE (optional; kept for completeness) =====
+FENCE_RE = re.compile(r"^```(?:diff|patch)?\s*$", re.IGNORECASE)
 def sanitize_patch_text(text: str) -> str:
     t = text.strip()
     lines = t.splitlines()
@@ -202,49 +364,17 @@ def sanitize_patch_text(text: str) -> str:
             if lines[i].strip() == "```":
                 t = "\n".join(lines[1:i])
                 break
-    begin = t.find("<BEGIN_PATCH>")
-    end = t.find("<END_PATCH>")
-    if begin != -1 and end != -1 and end > begin:
-        t = t[begin + len("<BEGIN_PATCH>"):end].strip()
-    idx_diff = t.find("diff --git ")
-    idx_unified = t.find("\n--- ")
-    idx_unified_start = t.find("--- ")
-    starts = [i for i in [idx_diff, idx_unified if idx_unified != -1 else None, idx_unified_start] if i is not None and i != -1]
+    b = t.find("<BEGIN_PATCH>"); e = t.find("<END_PATCH>")
+    if b != -1 and e != -1 and e > b:
+        t = t[b+len("<BEGIN_PATCH>"):e].strip()
+    idx = t.find("diff --git "); alt = t.find("\n--- "); alt2 = t.find("--- ")
+    starts = [i for i in [idx, alt if alt != -1 else None, alt2] if i is not None and i != -1]
     if starts:
-        start_at = min(starts)
-        t = t[start_at:].lstrip()
+        t = t[min(starts):].lstrip()
     return t
 
 def _normalize_line_endings(s: str) -> str:
     return s.replace("\r\n", "\n").replace("\r", "\n")
-
-def _clean_patch_whitespace(raw_text: str) -> str:
-    clean_lines = [line.rstrip() for line in raw_text.splitlines()]
-    return "\n".join(clean_lines) + "\n"
-
-def _looks_like_diff(text: str) -> bool:
-    return ("diff --git " in text) or (("--- " in text) and ("+++ " in text))
-
-def _print_patch_failure(patch_path: str, stderr: str, note: str):
-    print("❌ Patch apply failed.")
-    print(f"[patch] Saved to: {patch_path}")
-    if stderr:
-        print("[git apply stderr]")
-        print(stderr.strip()[:2000])
-    if note:
-        print("[note]")
-        print(textwrap.shorten(note, width=1000, placeholder=" …"))
-    rej_files = list(WATCH_DIR.rglob("*.rej"))
-    if rej_files:
-        print("[rejects] The following .rej files were created:")
-        for rf in rej_files[:10]:
-            print(" -", rf)
-        try:
-            sample = rej_files[0].read_text(encoding="utf-8", errors="replace")
-            print("[reject sample]")
-            print(sample[:1000])
-        except Exception:
-            pass
 
 def _write_temp_patch(text: str) -> str:
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".patch", encoding="utf-8") as f:
@@ -263,164 +393,56 @@ def _try_git_apply_variants(patch_path: str):
         return True, "(applied with rejects; see .rej files)"
     return False, apr.stderr or ap3.stderr or ap.stderr
 
-def apply_patch(patch_text):
-    """Returns (ok: bool, msg: str, patch_path: str|None). Prints changed files on success."""
-    # Optional pre-clean if repo is conflicted
+def apply_patch_text(patch_text: str) -> tuple[bool,str,str|None]:
     if AUTO_CLEAN:
         cleanup_conflicts()
-
     text = sanitize_patch_text(patch_text)
-    if not _looks_like_diff(text):
+    if ("--- " not in text or "+++ " not in text) and ("diff --git " not in text):
         return False, "No diff headers detected after sanitization.", None
     text = _normalize_line_endings(text)
-    cleaned_text = _clean_patch_whitespace(text)
-    patch_path = _write_temp_patch(cleaned_text)
-
+    # strip trailing spaces per line
+    clean = "\n".join(ln.rstrip() for ln in text.splitlines()) + "\n"
+    patch_path = _write_temp_patch(clean)
     ok, err = _try_git_apply_variants(patch_path)
     if not ok:
-        _print_patch_failure(patch_path, err, "")
+        print("❌ Patch apply failed.")
+        print(f"[patch] Saved to: {patch_path}")
+        if err:
+            print("[git apply stderr]")
+            print(err.strip()[:2000])
         return False, err or "git apply failed", patch_path
-
     cm = git(["commit","-m", f"AI patch {datetime.now().isoformat(timespec='seconds')}"])
     if cm.returncode != 0:
-        note = cm.stderr or ""
-        if "unmerged files" in note.lower() and AUTO_CLEAN:
-            print("[git] Commit blocked by unmerged files. Attempting auto-clean and retry...")
-            if cleanup_conflicts():
-                # re-apply same patch, then commit
-                ok2, err2 = _try_git_apply_variants(patch_path)
-                if ok2:
-                    cm2 = git(["commit","-m", f"AI patch {datetime.now().isoformat(timespec='seconds')}"])
-                    if cm2.returncode == 0:
-                        changed = git(["diff", "--name-only", "HEAD~1", "HEAD"]).stdout.strip()
-                        print("✅ Patch applied and committed after auto-clean. Files changed:")
-                        print(changed if changed else "(no files?)")
-                        return True, "applied", patch_path
-                _print_patch_failure(patch_path, err2 if not ok2 else (cm2.stderr if 'cm2' in locals() and cm2.returncode != 0 else ""), "auto-clean retry failed")
-                return False, "commit failed after auto-clean retry", patch_path
-        _print_patch_failure(patch_path, cm.stderr, "")
+        print("❌ Commit failed after patch apply.")
+        print(cm.stderr)
         return False, cm.stderr, patch_path
-
-    changed = git(["diff", "--name-only", "HEAD~1", "HEAD"]).stdout.strip()
+    changed = git(["diff","--name-only","HEAD~1","HEAD"]).stdout.strip()
     print("✅ Patch applied and committed. Files changed:")
     print(changed if changed else "(no files?)")
     return True, "applied", patch_path
 
-# ===== Context builder (includes extra files) =====
-def project_context_blob():
-    """Builds the context sent to the model.
-    - Uses full workspace or just diff, depending on CONTEXT_MODE
-    - Always appends any EXTRA_CONTEXT_FILES (e.g., plugin.yml) to avoid hunk mismatches
-    - Respects MAX_CONTEXT_BYTES cap
-    """
-    base = collect_full_context() if CONTEXT_MODE == "full" else collect_diff_context()
-    parts = [base]
-    for rel in EXTRA_CONTEXT_FILES:
-        p = (WATCH_DIR / rel)
-        if p.exists() and p.is_file():
+# ===== Request helpers =====
+def request_ops_with_fallback(change_or_fix: str, payload: str) -> dict|None:
+    """Return parsed JSON edits from primary, then fallback model. None if both fail."""
+    for strict in (False, True):
+        for model_name in (MODEL, FALLBACK_MODEL):
             try:
-                content = p.read_text(encoding="utf-8", errors="replace")
-                parts.append(f"\n\n===== FILE (extra): {rel} =====\n{content}")
-            except Exception:
-                pass
-    blob = "".join(parts)
-    return blob[:MAX_CONTEXT_BYTES]
-
-# ===== Prompt builders & calls =====
-def _change_prompt(strict: bool, allow: str, change_instructions: str) -> tuple[str, str]:
-    system = (
-        "You are a senior Java engineer working on a Bukkit/Paper/Velocity plugin. "
-        "Return ONLY a valid git patch. Avoid trailing whitespace. Use LF line endings. "
-        "Ensure `git apply` succeeds on Windows with CRLF working trees."
-    )
-    fmt_help = (
-        "Output ONLY the patch, starting with 'diff --git a/... b/...' and correct unified hunks '@@ -x,y +x,y @@'."
-        if strict else
-        "Output ONLY a unified diff patch (---/+++ with @@ hunks) or 'diff --git' format."
-    )
-    markers = "\n<BEGIN_PATCH>\n{patch}\n<END_PATCH>\n" if strict else "\n{patch}\n"
-    user = f"""Repository root: {WATCH_DIR}
-Allowed file extensions: {allow}
-
-High-level change request:
----
-{change_instructions}
----
-
-Project context (truncated by byte cap):
-{project_context_blob()}
-
-Format:
-- {fmt_help}
-- Do not include yaml, markdown, or explanations.
-- Use paths relative to the repo root.
-{markers}""".replace("{patch}", "(patch here)")
-    return system, user
-
-def _fix_prompt(strict: bool, allow: str, failure_text: str) -> tuple[str, str]:
-    system = (
-        "You are a senior Java engineer. "
-        "Return ONLY a valid git patch that fixes the build/test failure. "
-        "Avoid trailing whitespace. Use LF line endings. Ensure `git apply` succeeds."
-    )
-    fmt_help = (
-        "Output ONLY the patch, starting with 'diff --git a/... b/...' and correct unified hunks."
-        if strict else
-        "Output ONLY a unified diff (---/+++ with @@ hunks) or 'diff --git' format."
-    )
-    markers = "\n<BEGIN_PATCH>\n{patch}\n<END_PATCH>\n" if strict else "\n{patch}\n"
-    user = f"""Repository root: {WATCH_DIR}
-Allowed file extensions: {allow}
-
-Latest build/test failure:
----
-{failure_text}
----
-
-Project context (truncated by byte cap):
-{project_context_blob()}
-
-Format:
-- {fmt_help}
-- Do not include yaml, markdown, or explanations.
-- Use paths relative to the repo root.
-{markers}""".replace("{patch}", "(patch here)")
-    return system, user
-
-def ask_for_change_patch(model_name, change_instructions, strict=False):
-    allow = ", ".join(sorted(ALLOWLIST))
-    system, user = _change_prompt(strict, allow, change_instructions)
-    resp = client.responses.create(
-        model=model_name,
-        input=[{"role":"system","content":system},
-               {"role":"user","content":user}],
-        reasoning={"effort":"high"}
-    )
-    return resp.output_text, getattr(resp, "model", model_name)
-
-def ask_for_fix_patch(model_name, failure_text, strict=False):
-    allow = ", ".join(sorted(ALLOWLIST))
-    system, user = _fix_prompt(strict, allow, failure_text)
-    resp = client.responses.create(
-        model=model_name,
-        input=[{"role":"system","content":system},
-               {"role":"user","content":user}],
-        reasoning={"effort":"medium"}
-    )
-    return resp.output_text, getattr(resp, "model", model_name)
-
-def request_with_retries(request_fn, model_names, *args):
-    text, used = request_fn(model_names[0], *args, False)
-    if text and _looks_like_diff(sanitize_patch_text(text)):
-        return text, used
-    text, used = request_fn(model_names[0], *args, True)
-    if text and _looks_like_diff(sanitize_patch_text(text)):
-        return text, used
-    if len(model_names) > 1 and model_names[1]:
-        text, used = request_fn(model_names[1], *args, True)
-        if text and _looks_like_diff(sanitize_patch_text(text)):
-            return text, used
-    return None, None
+                if change_or_fix == "change":
+                    text, used = ask_for_change_ops(payload, model_name)
+                else:
+                    text, used = ask_for_fix_ops(payload, model_name)
+                try:
+                    data = _parse_ops_json(text)
+                    print(f"Model used: {used}")
+                    return data
+                except Exception as pe:
+                    if strict:
+                        continue
+                    # second try: ask the same model again but remind schema
+                    # (we simply loop to next iteration)
+            except Exception as e:
+                continue
+    return None
 
 # ===== Interactive flow =====
 def read_multiline_prompt():
@@ -437,23 +459,67 @@ def read_multiline_prompt():
         lines.append(line)
     return "\n".join(lines).strip()
 
-def obtain_and_apply_patch(request_fn, model_order, *args):
-    for cycle in range(1, MAX_PATCH_RETRIES + 2):  # attempts
-        patch, used_model = request_with_retries(request_fn, model_order, *args)
-        if not patch:
-            print(f"[patch] Could not obtain a valid patch on attempt {cycle}.")
-            continue
-        print(f"Model used: {used_model}")
-        ok, msg, _ = apply_patch(patch)
-        if ok:
-            return True
-        print(f"[patch] Apply failed on attempt {cycle}: {msg}")
+def apply_ops_from_model(change_instructions: str) -> bool:
+    data = request_ops_with_fallback("change", change_instructions)
+    if not data:
+        print("Failed to get valid JSON edits from the model.")
+        return False
+    try:
+        changed_paths = _apply_ops(data)
+    except Exception as e:
+        print(f"❌ Failed to apply ops: {e}")
+        return False
+    git(["add","."])
+    cm = git(["commit","-m", f"AI ops {datetime.now().isoformat(timespec='seconds')}"])
+    if cm.returncode != 0:
+        print("❌ Commit failed:", cm.stderr)
+        return False
+    print("✅ Files written and committed:")
+    for p in changed_paths:
+        print(" -", p.relative_to(WATCH_DIR))
+    return True
+
+def fix_with_ops(failure_text: str) -> bool:
+    data = request_ops_with_fallback("fix", failure_text)
+    if not data:
+        print("Failed to get valid JSON edits for fix.")
+        return False
+    try:
+        changed_paths = _apply_ops(data)
+    except Exception as e:
+        print(f"❌ Failed to apply fix ops: {e}")
+        return False
+    git(["add","."])
+    cm = git(["commit","-m", f"AI fix ops {datetime.now().isoformat(timespec='seconds')}"])
+    if cm.returncode != 0:
+        print("❌ Commit failed:", cm.stderr)
+        return False
+    print("✅ Fix files written and committed:")
+    for p in changed_paths:
+        print(" -", p.relative_to(WATCH_DIR))
+    return True
+
+def obtain_and_apply_change(change_instructions: str) -> bool:
+    if EDIT_MODE.lower() == "ops":
+        return apply_ops_from_model(change_instructions)
+    # patch mode fallback if explicitly requested
+    print("Requesting change patch from model:", MODEL)
+    for attempt in range(1, MAX_PATCH_RETRIES + 2):
+        try:
+            # Build a minimal patch prompt (omit here to keep response short)
+            system = "Return ONLY a valid git unified diff. No explanations."
+            user = f"{project_context_blob()}\nChange:\n{change_instructions}"
+            text, used = _call_model(system=system, user=user, effort="high", model_name=MODEL)
+            ok, msg, _ = apply_patch_text(text)
+            if ok:
+                return True
+            print(f"[patch] Apply failed on attempt {attempt}: {msg}")
+        except Exception as e:
+            print(f"[patch] Attempt {attempt} error: {e}")
     return False
 
 def main():
     ensure_repo_clean_enough()
-
-    # Auto-clean any leftover conflicts before we start
     if AUTO_CLEAN:
         cleanup_conflicts()
 
@@ -471,13 +537,13 @@ def main():
             print("---- build stderr ----")
             print(base.stderr)
 
-    print(f"\nRequesting change patch from model: {MODEL}")
-    if not obtain_and_apply_patch(ask_for_change_patch, [MODEL, FALLBACK_MODEL], change_instructions):
-        print("Failed to apply the initial change after retries.")
+    print(f"\nEdit mode: {EDIT_MODE}")
+    print("Applying requested change...")
+    if not obtain_and_apply_change(change_instructions):
+        print("Failed to apply the requested change.")
         sys.exit(2)
 
     attempt = 0
-    current_order = [MODEL, FALLBACK_MODEL]
     while True:
         result = run_tests()
         if result.returncode == 0:
@@ -490,15 +556,29 @@ def main():
             print("Reached maximum auto-fix attempts. Leaving last commit in place for review.")
             break
 
-        print(f"\n❌ Build/tests failing (attempt {attempt}/{MAX_FIX_ATTEMPTS}). Requesting fix patch...")
+        print(f"\n❌ Build/tests failing (attempt {attempt}/{MAX_FIX_ATTEMPTS}). Attempting automatic fix...")
         print("---- build stdout ----")
         print(result.stdout)
         print("---- build stderr ----")
         print(result.stderr)
 
-        if obtain_and_apply_patch(ask_for_fix_patch, current_order, result.stdout + "\n" + result.stderr):
-            continue
-        current_order = [current_order[1], current_order[0]]
+        ok = False
+        if EDIT_MODE.lower() == "ops":
+            ok = fix_with_ops(result.stdout + "\n" + result.stderr)
+        else:
+            # patch-mode fix (kept minimal)
+            system = "Return ONLY a valid git unified diff that fixes the failure. No explanations."
+            user = f"{project_context_blob()}\nFailure:\n{result.stdout}\n{result.stderr}"
+            try:
+                text, used = _call_model(system=system, user=user, effort="medium", model_name=MODEL)
+                ok, msg, _ = apply_patch_text(text)
+                if not ok:
+                    print("Patch fix failed:", msg)
+            except Exception as e:
+                print("Patch fix error:", e)
+
+        if not ok:
+            print("Could not auto-fix on this attempt; continuing if attempts remain...")
 
 if __name__ == "__main__":
     main()
