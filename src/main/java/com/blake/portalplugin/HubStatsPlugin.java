@@ -1,53 +1,91 @@
 package com.blake.portalplugin;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.CompassMeta;
 import org.bukkit.plugin.java.JavaPlugin;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
 public class HubStatsPlugin extends JavaPlugin {
-    private ArenaManager arenaManager;
-    private Location hubLocation;
+    private static HubStatsPlugin instance;
+
+    private CustomScoreboardManager scoreboardManager;
+    private GameQueueManager        queueManager;
+    private GameStateManager        stateManager;
+    private ArenaManager            arenaManager;
+
+    private final Map<UUID, GameState> playerStates = new HashMap<>();
 
     @Override
     public void onEnable() {
-        // Initialize managers and state
-        // ArenaManager requires this plugin instance in its constructor
-        arenaManager = new ArenaManager(this);
+        instance = this;
 
-        // Other initialization can go here (listeners, commands, etc.)
+        scoreboardManager = new CustomScoreboardManager(this);
+        arenaManager      = new ArenaManager(this);
+        queueManager      = new GameQueueManager(this, scoreboardManager, null);
+        stateManager      = new GameStateManager(this, scoreboardManager, queueManager);
+        queueManager      = new GameQueueManager(this, scoreboardManager, stateManager);
+
+        getCommand("gamestate").setExecutor(new GameStateCommand(stateManager));
+        getCommand("createsign").setExecutor(new CreateSignCommand());
+        getCommand("savered").setExecutor((s, c, l, a) -> {
+            arenaManager.saveRedArena();
+            s.sendMessage("§aRed arena saved."); return true;
+        });
+        getCommand("saveblue").setExecutor((s, c, l, a) -> {
+            arenaManager.saveBlueArena();
+            s.sendMessage("§aBlue arena saved."); return true;
+        });
+
+        var pm = getServer().getPluginManager();
+        pm.registerEvents(new PlayerJoinListener(this, stateManager), this);
+        pm.registerEvents(new SignListener(queueManager, stateManager), this);
+        pm.registerEvents(new PlayerQuitListener(queueManager, stateManager), this);
+        pm.registerEvents(new GameStateListener(stateManager), this);
+        pm.registerEvents(new SpleefBlockListener(stateManager), this);
+        pm.registerEvents(new SpleefGameListener(stateManager), this);
+
+        getLogger().info("HubStatsPlugin enabled");
     }
 
-    @Override
-    public void onDisable() {
-        // Cleanup if necessary
+    public static HubStatsPlugin getInstance() {
+        return instance;
     }
 
-    // Accessor for other classes
-    public ArenaManager getArenaManager() {
-        return arenaManager;
-    }
+    public ArenaManager getArenaManager()         { return arenaManager; }
+    public GameQueueManager getQueueManager()     { return queueManager; }
+    public GameStateManager getStateManager()     { return stateManager; }
+    public CustomScoreboardManager getScoreboardManager() { return scoreboardManager; }
 
-    // Minimal placeholder implementations so other classes compiling against
-    // these methods will succeed. Real implementations should replace these.
-    public String getPlayerRank(Player player) {
-        // TODO: integrate with real rank system
-        return "Member";
+    public void setPlayerState(Player p, GameState s) {
+        playerStates.put(p.getUniqueId(), s);
     }
-
-    public int getPlayerCoins(Player player) {
-        // TODO: integrate with economy/storage
-        return 0;
+    public GameState getPlayerState(Player p) {
+        return playerStates.getOrDefault(p.getUniqueId(), GameState.HUB);
     }
-
-    public void giveHubCompass(Player player) {
-        // TODO: give the player a compass item pointing to hub
+    public void clearPlayerState(Player p) {
+        playerStates.remove(p.getUniqueId());
     }
 
     public Location getHubLocation() {
-        return hubLocation;
+        return new Location(Bukkit.getWorld("world"), 6, -58, -11, 0f, 0f);
+    }
+    public void giveHubCompass(Player p) {
+        ItemStack comp = new ItemStack(Material.COMPASS);
+        CompassMeta m = (CompassMeta) comp.getItemMeta();
+        if (m != null) {
+            m.setDisplayName("§aServer Selector");
+            comp.setItemMeta(m);
+        }
+        p.getInventory().setItem(0, comp);
     }
 
-    public void setHubLocation(Location loc) {
-        this.hubLocation = loc;
-    }
+    public int getPlayerCoins(Player p)  { return PlayerStatsManager.getCoins(p.getUniqueId()); }
+    public String getPlayerRank(Player p) { return "Default"; }
+    public int getPlayerLevel(Player p)   { return 1; }
 }
