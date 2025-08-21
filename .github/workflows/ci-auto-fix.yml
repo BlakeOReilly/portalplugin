@@ -1,0 +1,62 @@
+name: CI (build) + auto-fix on failure
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Build (capture logs)
+        id: build
+        run: |
+          set -o pipefail
+          ./gradlew build --stacktrace --no-daemon 2>&1 | tee build.log
+        continue-on-error: true
+
+      - name: Upload build log artifact
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+
+      - name: Run auto-fix script (only on failure)
+        if: ${{ failure() }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python3 -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install openai==1.* tomli
+          python scripts/auto_fix.py --log build.log --root .
+
+      - name: Open PR with changes (only if there are edits)
+        if: ${{ failure() }}
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore(ci): auto-fix build errors"
+          title: "Auto-fix: build failed — suggested changes"
+          body: |
+            This PR was opened automatically after a failed build.
+            Please review changes generated from **build.log**.
+          branch: auto-fix/${{ github.run_id }}
+          delete-branch: true
