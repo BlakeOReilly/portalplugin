@@ -49,8 +49,21 @@ jobs:
           pip install openai==1.* tomli
           python scripts/auto_fix.py --log build.log --root .
 
+      # Summarize what the fixer did (files changed or nothing)
+      - name: Summarize auto-fix
+        if: ${{ failure() }}
+        run: |
+          echo "## Auto-fix summary" >> $GITHUB_STEP_SUMMARY
+          if git log -1 --pretty=%B | grep -qi "auto-fix: apply edits"; then
+            echo "The auto-fix committed changes. Files changed:" >> $GITHUB_STEP_SUMMARY
+            git show --name-only --pretty="" HEAD >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No edits were applied by the auto-fix script." >> $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Open PR with changes (only if there are edits)
         if: ${{ failure() }}
+        id: cpr
         uses: peter-evans/create-pull-request@v7
         with:
           commit-message: "chore(ci): auto-fix build errors"
@@ -60,3 +73,11 @@ jobs:
             Please review changes generated from **build.log**.
           branch: auto-fix/${{ github.run_id }}
           delete-branch: true
+
+      # Append PR link (if a PR was created) to the run summary
+      - name: Summarize PR
+        if: ${{ failure() && steps.cpr.outputs.pull-request-number }}
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pull Request" >> $GITHUB_STEP_SUMMARY
+          echo "PR #${{ steps.cpr.outputs.pull-request-number }}: ${{ steps.cpr.outputs.pull-request-url }}" >> $GITHUB_STEP_SUMMARY
