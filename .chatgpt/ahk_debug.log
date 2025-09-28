@@ -1,0 +1,12 @@
+﻿[20250927230735] Starting
+[20250927230735] Args: prompt=.\.chatgpt\prompt.txt proc=ChatGPT.exe
+[20250927230735] Prompt length=6707
+[20250927230735] Step 1: Activate ChatGPT window
+[20250927230736] Step 2: Focus composer
+[20250927230738] Focus OK
+[20250927230738] Step 3: Type prompt (chunked)
+[20250927230740] Typed chars=369 / 6707
+[20250927230740] Typed <90%; retry slower once
+[20250927230741] Typed chars=369 / 6707
+[20250927230741] Step 4: Submit
+[20250927230743] Done
