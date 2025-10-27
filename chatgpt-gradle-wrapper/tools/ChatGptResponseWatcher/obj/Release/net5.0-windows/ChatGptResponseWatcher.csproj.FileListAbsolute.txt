@@ -1,0 +1,16 @@
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\bin\Release\net5.0-windows\ChatGptResponseWatcher.exe
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\bin\Release\net5.0-windows\ChatGptResponseWatcher.deps.json
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\bin\Release\net5.0-windows\ChatGptResponseWatcher.runtimeconfig.json
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\bin\Release\net5.0-windows\ChatGptResponseWatcher.runtimeconfig.dev.json
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\bin\Release\net5.0-windows\ChatGptResponseWatcher.dll
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\bin\Release\net5.0-windows\ChatGptResponseWatcher.pdb
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\obj\Release\net5.0-windows\ChatGptResponseWatcher.GeneratedMSBuildEditorConfig.editorconfig
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\obj\Release\net5.0-windows\ChatGptResponseWatcher.AssemblyInfoInputs.cache
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\obj\Release\net5.0-windows\ChatGptResponseWatcher.AssemblyInfo.cs
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\obj\Release\net5.0-windows\ChatGptResponseWatcher.csproj.CoreCompileInputs.cache
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\obj\Release\net5.0-windows\ChatGptResponseWatcher.sourcelink.json
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\obj\Release\net5.0-windows\ChatGptResponseWatcher.dll
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\obj\Release\net5.0-windows\refint\ChatGptResponseWatcher.dll
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\obj\Release\net5.0-windows\ChatGptResponseWatcher.pdb
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\obj\Release\net5.0-windows\ChatGptResponseWatcher.genruntimeconfig.cache
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\obj\Release\net5.0-windows\ref\ChatGptResponseWatcher.dll

@@ -1,0 +1,5 @@
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\obj\Release\net8.0-windows\ChatGptResponseWatcher.GeneratedMSBuildEditorConfig.editorconfig
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\obj\Release\net8.0-windows\ChatGptResponseWatcher.AssemblyInfoInputs.cache
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\obj\Release\net8.0-windows\ChatGptResponseWatcher.AssemblyInfo.cs
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\obj\Release\net8.0-windows\ChatGptResponseWatcher.csproj.CoreCompileInputs.cache
+D:\Multiplayer Network\portalplugin\chatgpt-gradle-wrapper\tools\ChatGptResponseWatcher\obj\Release\net8.0-windows\ChatGptResponseWatcher.sourcelink.json
