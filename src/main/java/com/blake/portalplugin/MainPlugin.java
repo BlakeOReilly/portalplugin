@@ -5,11 +5,11 @@ import org.bukkit.plugin.java.JavaPlugin;
 public class MainPlugin extends JavaPlugin {
     @Override
     public void onEnable() {
-        this.getCommand("gamestate").setExecutor(new GamestateCommand(this));
+        this.getCommand("gamestate").setExecutor(new GameStateCommand(this));
     }
 
     @Override
     public void onDisable() {
-        // Logic for disabling the plugin
+        // Plugin shutdown logic
     }
 }
