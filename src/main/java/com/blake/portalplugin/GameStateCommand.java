@@ -15,12 +15,12 @@ public class GamestateCommand implements CommandExecutor {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0) {
-            sender.sendMessage("Unknown or incomplete command, see below for error");
-            return false;
+            sender.sendMessage("Usage: /gamestate <state>");
+            return true;
         }
-        // Add logic to handle the command based on args
-        // Example: if (args[0].equalsIgnoreCase("start")) { ... }
-        sender.sendMessage("Command executed successfully!");
+        String state = args[0];
+        // Logic to handle game state
+        sender.sendMessage("Game state set to: " + state);
         return true;
     }
 }

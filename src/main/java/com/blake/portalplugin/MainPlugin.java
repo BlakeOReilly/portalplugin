@@ -7,4 +7,9 @@ public class MainPlugin extends JavaPlugin {
     public void onEnable() {
         this.getCommand("gamestate").setExecutor(new GamestateCommand(this));
     }
+
+    @Override
+    public void onDisable() {
+        // Logic for disabling the plugin
+    }
 }
