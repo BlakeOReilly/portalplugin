@@ -1,25 +1,26 @@
 package com.blake.portalplugin;
 
+import org.bukkit.scoreboard.ScoreboardManager;
 import org.bukkit.entity.Player;
-import java.util.HashMap;
-import java.util.Map;
 
 public class GameStateManager {
-    private Map<Player, GameState> playerStates = new HashMap<>();
+    private final ScoreboardManager scoreboardManager;
 
-    public GameState getGameState(Player player) {
-        return playerStates.getOrDefault(player, GameState.DEFAULT);
+    public GameStateManager(ScoreboardManager scoreboardManager) {
+        this.scoreboardManager = scoreboardManager;
     }
 
-    public void setGameState(Player player, GameState state, Object additionalData) {
-        playerStates.put(player, state);
+    // Add methods for getGameState, setGameState, clearPlayer, etc.
+    public GameState getGameState(Player player) {
+        // Implementation here
+        return GameState.HUB; // Placeholder
+    }
+
+    public void setGameState(Player player, GameState state, Object obj) {
+        // Implementation here
     }
 
     public void clearPlayer(Player player) {
-        playerStates.remove(player);
-    }
-
-    public void removePlayerFromGame(Player player) {
-        // Implementation to remove player from game
+        // Implementation here
     }
 }
