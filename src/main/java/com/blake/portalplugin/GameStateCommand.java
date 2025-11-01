@@ -1,11 +1,13 @@
 package com.blake.portalplugin;
 
-import org.bukkit.entity.Player;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandExecutor;
+import org.bukkit.command.CommandSender;
 
-public class GameStateCommand {
-    private GameStateManager manager;
-
-    public void execute(Player p) {
-        p.sendMessage("Your state: " + manager.getGameState(p));
+public class GamestateCommand implements CommandExecutor {
+    @Override
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        // Command logic here
+        return true;
     }
 }
