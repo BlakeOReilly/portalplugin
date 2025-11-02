@@ -3,13 +3,14 @@ package com.blake.portalplugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class MainPlugin extends JavaPlugin {
+
     @Override
     public void onEnable() {
-        getCommand("gamestate").setExecutor(new GameStateCommand(this));
+        getCommand("scoreboard").setExecutor(new Commands(this));
     }
 
     @Override
     public void onDisable() {
-        // Plugin shutdown logic
+        // Logic for disabling the plugin
     }
 }

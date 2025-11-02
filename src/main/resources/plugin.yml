@@ -1,4 +1,7 @@
 name: PortalPlugin
 version: 1.0
 main: com.blake.portalplugin.MainPlugin
-api-version: 1.21
+commands:
+  scoreboard:
+    description: Displays the scoreboard
+    usage: /<command>
