@@ -3,10 +3,13 @@ package com.blake.portalplugin;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.plugin.java.JavaPlugin;
 
 public class GameStateCommand implements CommandExecutor {
+    private final JavaPlugin plugin;
 
-    public GameStateCommand() {
+    public GameStateCommand(JavaPlugin plugin) {
+        this.plugin = plugin;
     }
 
     @Override

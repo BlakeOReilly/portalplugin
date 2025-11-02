@@ -1,7 +1,4 @@
 name: PortalPlugin
 version: 1.0
 main: com.blake.portalplugin.MainPlugin
-commands:
-  gamestate:
-    description: Set the game state
-    usage: /gamestate <state>
+api-version: 1.21
