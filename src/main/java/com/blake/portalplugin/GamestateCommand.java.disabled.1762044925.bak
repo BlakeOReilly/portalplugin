@@ -1,0 +1,20 @@
+package com.blake.portalplugin;
+
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandExecutor;
+import org.bukkit.command.CommandSender;
+import org.bukkit.plugin.java.JavaPlugin;
+
+public class GameStateCommand implements CommandExecutor {
+    private final JavaPlugin plugin;
+
+    public GameStateCommand(JavaPlugin plugin) {
+        this.plugin = plugin;
+    }
+
+    @Override
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        // Command logic here
+        return true;
+    }
+}
