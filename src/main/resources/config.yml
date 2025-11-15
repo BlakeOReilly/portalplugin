@@ -1,0 +1,13 @@
+# Per-gamestate permissions granted dynamically when a player enters the state.
+# Add or remove nodes to fit your server.
+permissions:
+  HUB:
+    - minecraft.command.msg
+    - essentials.nick
+    - myplugin.hub.warp
+  LOBBY:
+    - minecraft.command.list
+    - myplugin.lobby.queue
+  SPLEEF:
+    - myplugin.spleef.play
+    - myplugin.spleef.kit.basic
