@@ -20,8 +20,9 @@ public class GameQueue {
     }
 
     public void addPlayer(Player p) {
-        if (!queuedPlayers.contains(p.getUniqueId())) {
-            queuedPlayers.add(p.getUniqueId());
+        UUID id = p.getUniqueId();
+        if (!queuedPlayers.contains(id)) {
+            queuedPlayers.add(id);
         }
     }
 
@@ -33,6 +34,10 @@ public class GameQueue {
         return queuedPlayers.contains(p.getUniqueId());
     }
 
+    /**
+     * Returns the internal list of queued players in join order
+     * (first element = first player who queued).
+     */
     public List<UUID> getQueuedPlayers() {
         return queuedPlayers;
     }

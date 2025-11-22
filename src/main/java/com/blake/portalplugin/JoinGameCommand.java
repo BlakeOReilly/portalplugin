@@ -48,8 +48,8 @@ public class JoinGameCommand implements CommandExecutor {
         queue.addPlayer(player);
         player.sendMessage("You joined the queue for " + game + ".");
 
-        // New: handle arena assignment when queue has > 1 player
-        queueManager.handlePlayerQueued(game, player);
+        // Now handle arena assignment for all players in the queue
+        queueManager.handlePlayerQueued(game);
 
         return true;
     }

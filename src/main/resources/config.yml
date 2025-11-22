@@ -1,3 +1,7 @@
+# Active game for this server (set by /gameset)
+# Example: spleef
+active-game: none
+
 # Per-gamestate permissions granted dynamically when a player enters the state.
 # Add or remove nodes to fit your server.
 permissions:
@@ -11,3 +15,22 @@ permissions:
   SPLEEF:
     - myplugin.spleef.play
     - myplugin.spleef.kit.basic
+  ADMIN:
+    - '*'
+    - portalplugin.currency.admin
+
+# Persisted game queues created by /creategame
+# Example: ["spleef", "tntrun"]
+queues: []
+
+# Persisted queue signs: world,x,y,z,game
+# Example: ["world,100,65,200,spleef"]
+queue-signs: []
+
+# -------------------------------------------------------
+# NEW: Server Registry (used for server auto-numbering)
+# -------------------------------------------------------
+# hostname: The external host or internal address for THIS Paper server.
+# If you run everything on localhost, leave it as 127.0.0.1.
+server-registry:
+  hostname: "127.0.0.1"

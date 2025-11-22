@@ -5,9 +5,10 @@ api-version: '1.20'
 author: Blake
 
 commands:
+
   gamestate:
     description: View or set your game state
-    usage: /gamestate [HUB|ARENA|SPLEEF]
+    usage: /gamestate [HUB|ARENA|SPLEEF|ADMIN]
 
   fillhunger:
     description: Fill your hunger bar
@@ -19,7 +20,10 @@ commands:
 
   arena:
     description: Manage arenas
-    usage: /arena <add|spawn>
+    usage: |
+      /arena add <name>
+      /arena spawn <name> <x> <y> <z>
+      /arena save <name> <material> <x1> <y1> <z1> <x2> <y2> <z2>
 
   creategame:
     description: Create a new game queue
@@ -33,6 +37,92 @@ commands:
     description: Create a sign that joins/leaves a queue
     usage: /createsign <game>
 
+  createspawnsign:
+    description: Create a sign that teleports players to spawn
+    usage: /createspawnsign
+    permission: portalplugin.createspawnsign
+
+  clearsigns:
+    description: Destroy all registered queue signs and reset saved sign locations
+    usage: /clearsigns
+    permission: portalplugin.clearsigns
+
   arenamaximum:
     description: Set maximum players for an arena
     usage: /arenamaximum <arena> <number>
+
+  setspawn:
+    description: Set the hub spawn location
+    usage: /setspawn <x> <y> <z>
+
+  stats:
+    description: View your game statistics
+    usage: /stats
+    permission: portalplugin.stats
+
+  createscoreboard:
+    description: Create a floating leaderboard hologram
+    usage: /createscoreboard <gamemode> wins
+    permission: portalplugin.createscoreboard
+
+  gameset:
+    description: Set the active game for this server (persistent across restarts)
+    usage: /gameset <gamemode>
+    permission: portalplugin.gameset
+
+  currency:
+    description: View or modify your currency
+    usage: /currency
+    permission: portalplugin.currency
+
+  rank:
+    description: View or set your rank
+    usage: /rank [rank]
+    permission: portalplugin.rank
+
+  gamewinloc:
+    description: Set the global win teleport location
+    usage: /gamewinloc <x> <y> <z>
+    permission: portalplugin.winlocation
+
+permissions:
+
+  portalplugin.stats:
+    description: Allows use of /stats
+    default: true
+
+  portalplugin.createscoreboard:
+    description: Allows use of /createscoreboard
+    default: op
+
+  portalplugin.gameset:
+    description: Allows use of /gameset to set the active server game
+    default: op
+
+  portalplugin.currency:
+    description: Allows use of /currency
+    default: true
+
+  portalplugin.currency.admin:
+    description: Allows modifying others' currency
+    default: op
+
+  portalplugin.clearsigns:
+    description: Allows clearing all queue signs
+    default: op
+
+  portalplugin.rank:
+    description: Allows viewing own rank
+    default: true
+
+  portalplugin.rank.set:
+    description: Allows setting ranks
+    default: op
+
+  portalplugin.winlocation:
+    description: Allows setting the global win location
+    default: op
+
+  portalplugin.createspawnsign:
+    description: Allows creating spawn signs
+    default: op

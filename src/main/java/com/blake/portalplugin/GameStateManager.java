@@ -1,6 +1,9 @@
+// src/main/java/com/blake/portalplugin/GameStateManager.java
 package com.blake.portalplugin;
 
+import com.blake.portalplugin.scoreboard.ScoreboardManager;
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 import org.bukkit.permissions.PermissionAttachment;
@@ -35,7 +38,9 @@ public class GameStateManager {
                 List<String> list = root.getStringList(gs.name());
                 if (list != null) {
                     for (String p : list) {
-                        if (p != null && !p.isBlank()) perms.add(p.trim());
+                        if (p != null && !p.isBlank()) {
+                            perms.add(p.trim());
+                        }
                     }
                 }
             }
@@ -52,20 +57,36 @@ public class GameStateManager {
     }
 
     public void setState(Player player, GameState newState) {
-        if (newState == null) return;
+        if (newState == null || player == null) return;
         states.put(player.getUniqueId(), newState);
         applyPermissions(player, newState);
+        applyGameMode(player, newState);
     }
 
     // ---------------------------------------------------------
-    // NEW API: Player-based methods required by your new features
+    // Player-based methods
     // ---------------------------------------------------------
     public GameState getGameState(Player player) {
         return getState(player.getUniqueId());
     }
 
+    /**
+     * When a player's game state changes:
+     *  - update stored state
+     *  - update permissions and gamemode
+     *  - refresh scoreboards for ALL players so "Players Joined" etc. stay in sync
+     */
     public void setGameState(Player player, GameState state) {
         setState(player, state);
+
+        // Refresh all scoreboards so that arena-related counts (Players Joined / Players Left)
+        // are correct for everyone, not just the player whose state changed.
+        if (plugin instanceof PortalPlugin portal) {
+            ScoreboardManager sb = portal.getScoreboardManager();
+            if (sb != null) {
+                sb.refreshAll();
+            }
+        }
     }
 
     // ---------------------------------------------------------
@@ -73,7 +94,9 @@ public class GameStateManager {
     // ---------------------------------------------------------
     public void ensureDefault(Player player) {
         states.putIfAbsent(player.getUniqueId(), GameState.HUB);
-        applyPermissions(player, getState(player.getUniqueId()));
+        GameState state = getState(player.getUniqueId());
+        applyPermissions(player, state);
+        applyGameMode(player, state);
     }
 
     // ---------------------------------------------------------
@@ -103,6 +126,38 @@ public class GameStateManager {
     }
 
     // ---------------------------------------------------------
+    // Apply GameMode whenever state changes
+    // ---------------------------------------------------------
+    private void applyGameMode(Player player, GameState state) {
+        if (player == null || state == null) return;
+
+        switch (state) {
+            case HUB:
+            case ARENA:
+                if (player.getGameMode() != GameMode.ADVENTURE) {
+                    player.setGameMode(GameMode.ADVENTURE);
+                }
+                break;
+
+            case SPLEEF:
+                if (player.getGameMode() != GameMode.SURVIVAL) {
+                    player.setGameMode(GameMode.SURVIVAL);
+                }
+                break;
+
+            case ADMIN: // NEW
+                if (player.getGameMode() != GameMode.CREATIVE) {
+                    player.setGameMode(GameMode.CREATIVE);
+                }
+                break;
+
+            default:
+                // Do nothing for unknown states
+                break;
+        }
+    }
+
+    // ---------------------------------------------------------
     // Cleanup
     // ---------------------------------------------------------
     public void clear(Player player) {
@@ -122,7 +177,9 @@ public class GameStateManager {
     public void clearAllOnline() {
         for (UUID uuid : new ArrayList<>(attachments.keySet())) {
             Player p = Bukkit.getPlayer(uuid);
-            if (p != null && p.isOnline()) clear(p);
+            if (p != null && p.isOnline()) {
+                clear(p);
+            }
         }
         states.clear();
         attachments.clear();

@@ -54,7 +54,7 @@ public class QueueSignListener implements Listener {
         } else {
             queue.addPlayer(player);
             player.sendMessage("You joined the queue for " + game + ".");
-            queueManager.handlePlayerQueued(game, player);
+            queueManager.handlePlayerQueued(game);
         }
     }
 }
