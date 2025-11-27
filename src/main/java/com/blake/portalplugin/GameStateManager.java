@@ -6,13 +6,17 @@ import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.FoodLevelChangeEvent;
 import org.bukkit.permissions.PermissionAttachment;
 import org.bukkit.plugin.Plugin;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class GameStateManager {
+public class GameStateManager implements Listener {
 
     private final Plugin plugin;
     private final Map<UUID, GameState> states = new ConcurrentHashMap<>();
@@ -22,10 +26,11 @@ public class GameStateManager {
     public GameStateManager(Plugin plugin) {
         this.plugin = plugin;
         loadPermissionsFromConfig();
+        Bukkit.getPluginManager().registerEvents(this, plugin);
     }
 
     // ---------------------------------------------------------
-    // Load state-based permissions from config.yml
+    // Load permissions
     // ---------------------------------------------------------
     public void loadPermissionsFromConfig() {
         statePermissions.clear();
@@ -38,19 +43,16 @@ public class GameStateManager {
                 List<String> list = root.getStringList(gs.name());
                 if (list != null) {
                     for (String p : list) {
-                        if (p != null && !p.isBlank()) {
-                            perms.add(p.trim());
-                        }
+                        if (p != null && !p.isBlank()) perms.add(p.trim());
                     }
                 }
             }
-
             statePermissions.put(gs, perms);
         }
     }
 
     // ---------------------------------------------------------
-    // Existing API: internal storage (UUID-based)
+    // Internal get/set
     // ---------------------------------------------------------
     public GameState getState(UUID uuid) {
         return states.getOrDefault(uuid, GameState.HUB);
@@ -58,52 +60,43 @@ public class GameStateManager {
 
     public void setState(Player player, GameState newState) {
         if (newState == null || player == null) return;
+
         states.put(player.getUniqueId(), newState);
         applyPermissions(player, newState);
         applyGameMode(player, newState);
+        applyStateItems(player, newState);
     }
 
     // ---------------------------------------------------------
-    // Player-based methods
+    // Public API
     // ---------------------------------------------------------
     public GameState getGameState(Player player) {
         return getState(player.getUniqueId());
     }
 
-    /**
-     * When a player's game state changes:
-     *  - update stored state
-     *  - update permissions and gamemode
-     *  - refresh scoreboards for ALL players so "Players Joined" etc. stay in sync
-     */
     public void setGameState(Player player, GameState state) {
         setState(player, state);
-
-        // Refresh all scoreboards so that arena-related counts (Players Joined / Players Left)
-        // are correct for everyone, not just the player whose state changed.
         if (plugin instanceof PortalPlugin portal) {
             ScoreboardManager sb = portal.getScoreboardManager();
-            if (sb != null) {
-                sb.refreshAll();
-            }
+            if (sb != null) sb.refreshAll();
         }
     }
 
     // ---------------------------------------------------------
-    // Ensure player begins with default HUB state
+    // Default HUB on join
     // ---------------------------------------------------------
     public void ensureDefault(Player player) {
         states.putIfAbsent(player.getUniqueId(), GameState.HUB);
         GameState state = getState(player.getUniqueId());
         applyPermissions(player, state);
         applyGameMode(player, state);
+        applyStateItems(player, state);
     }
 
     // ---------------------------------------------------------
-    // Apply permissions whenever state changes
+    // Permissions
     // ---------------------------------------------------------
     private void applyPermissions(Player player, GameState state) {
-        // Remove old attachment
         PermissionAttachment old = attachments.remove(player.getUniqueId());
         if (old != null) {
             try {
@@ -112,47 +105,78 @@ public class GameStateManager {
             } catch (Throwable ignored) {}
         }
 
-        // Create a fresh attachment
         PermissionAttachment att = player.addAttachment(plugin);
         attachments.put(player.getUniqueId(), att);
 
-        // State-specific permissions
         Set<String> perms = statePermissions.getOrDefault(state, Collections.emptySet());
-        for (String perm : perms) {
-            att.setPermission(perm, true);
-        }
+        for (String perm : perms) att.setPermission(perm, true);
 
         player.recalculatePermissions();
     }
 
     // ---------------------------------------------------------
-    // Apply GameMode whenever state changes
+    // GameModes
     // ---------------------------------------------------------
     private void applyGameMode(Player player, GameState state) {
-        if (player == null || state == null) return;
-
         switch (state) {
             case HUB:
             case ARENA:
-                if (player.getGameMode() != GameMode.ADVENTURE) {
+                if (player.getGameMode() != GameMode.ADVENTURE)
                     player.setGameMode(GameMode.ADVENTURE);
-                }
                 break;
 
             case SPLEEF:
-                if (player.getGameMode() != GameMode.SURVIVAL) {
+                if (player.getGameMode() != GameMode.SURVIVAL)
                     player.setGameMode(GameMode.SURVIVAL);
-                }
                 break;
 
-            case ADMIN: // NEW
-                if (player.getGameMode() != GameMode.CREATIVE) {
+            case ADMIN:
+                if (player.getGameMode() != GameMode.CREATIVE)
                     player.setGameMode(GameMode.CREATIVE);
-                }
+                break;
+        }
+    }
+
+    // ---------------------------------------------------------
+    // HUD Items
+    // ---------------------------------------------------------
+    private void applyStateItems(Player player, GameState state) {
+        if (!(plugin instanceof PortalPlugin portal)) return;
+
+        CollectiblesManager collectiblesManager = portal.getCollectiblesManager();
+        NavigationManager navigationManager = portal.getNavigationManager();
+        CosmeticsManager cosmeticsManager = portal.getCosmeticsManager();
+
+        switch (state) {
+
+            case HUB:
+                if (collectiblesManager != null) collectiblesManager.giveCollectiblesItem(player);
+                if (navigationManager != null) navigationManager.giveNavigationItem(player);
+                if (cosmeticsManager != null) cosmeticsManager.giveCosmeticsItem(player);
+                break;
+
+            case ARENA:
+                if (collectiblesManager != null) collectiblesManager.removeCollectiblesItem(player);
+                if (navigationManager != null) navigationManager.removeNavigationItem(player);
+                if (cosmeticsManager != null) cosmeticsManager.giveCosmeticsItem(player);
+                break;
+
+            case SPLEEF:
+                // Remove everything — absolutely no cosmetics in spleef
+                if (collectiblesManager != null) collectiblesManager.removeCollectiblesItem(player);
+                if (navigationManager != null) navigationManager.removeNavigationItem(player);
+                if (cosmeticsManager != null) cosmeticsManager.removeCosmeticsItem(player);
+
+                // Force-remove again one tick later (Spigot overwrite fix)
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    if (cosmeticsManager != null) cosmeticsManager.removeCosmeticsItem(player);
+                });
                 break;
 
             default:
-                // Do nothing for unknown states
+                if (collectiblesManager != null) collectiblesManager.removeCollectiblesItem(player);
+                if (navigationManager != null) navigationManager.removeNavigationItem(player);
+                if (cosmeticsManager != null) cosmeticsManager.removeCosmeticsItem(player);
                 break;
         }
     }
@@ -170,18 +194,33 @@ public class GameStateManager {
                 player.removeAttachment(att);
             } catch (Throwable ignored) {}
         }
-
         player.recalculatePermissions();
     }
 
     public void clearAllOnline() {
         for (UUID uuid : new ArrayList<>(attachments.keySet())) {
             Player p = Bukkit.getPlayer(uuid);
-            if (p != null && p.isOnline()) {
-                clear(p);
-            }
+            if (p != null && p.isOnline()) clear(p);
         }
         states.clear();
         attachments.clear();
+    }
+
+    // ---------------------------------------------------------
+    // Damage/Hunger Protection
+    // ---------------------------------------------------------
+    @EventHandler
+    public void onDamage(EntityDamageEvent event) {
+        if (event.getEntity() instanceof Player)
+            event.setCancelled(true);
+    }
+
+    @EventHandler
+    public void onHunger(FoodLevelChangeEvent event) {
+        if (event.getEntity() instanceof Player player) {
+            event.setCancelled(true);
+            player.setFoodLevel(20);
+            player.setSaturation(20);
+        }
     }
 }

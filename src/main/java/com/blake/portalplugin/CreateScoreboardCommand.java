@@ -1,11 +1,14 @@
 package com.blake.portalplugin.commands;
 
+import com.blake.portalplugin.PortalPlugin;
 import com.blake.portalplugin.holograms.HologramManager;
 import com.blake.portalplugin.stats.PlayerStats;
 import com.blake.portalplugin.stats.StatsManager;
 import org.bukkit.Bukkit;
 import org.bukkit.command.*;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.Plugin;
+import org.bukkit.configuration.file.FileConfiguration;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -46,16 +49,20 @@ public class CreateScoreboardCommand implements CommandExecutor {
 
         // ASYNC database query
         statsManager.getTopWins(gamemode, 10, (top) -> {
-            Bukkit.getScheduler().runTask(
-                    Bukkit.getPluginManager().getPlugin("PortalPlugin"),
-                    () -> {
+
+            Plugin raw = Bukkit.getPluginManager().getPlugin("PortalPlugin");
+            if (!(raw instanceof PortalPlugin plugin)) {
+                player.sendMessage("§cInternal error: PortalPlugin not found.");
+                return;
+            }
+
+            Bukkit.getScheduler().runTask(plugin, () -> {
 
                 List<String> lines = new ArrayList<>();
                 lines.add("§eTop Wins – §b" + gamemode);
 
                 int position = 1;
                 for (PlayerStats s : top) {
-
                     UUID uuid = UUID.fromString(s.getUuid());
                     String name = Bukkit.getOfflinePlayer(uuid).getName();
                     if (name == null) name = uuid.toString().substring(0, 8);
@@ -71,8 +78,22 @@ public class CreateScoreboardCommand implements CommandExecutor {
                 String id = gamemode + "_wins";
                 var loc = player.getLocation().add(0, 2, 0);
 
-                // Correct method call
+                // Create / refresh hologram in-world
                 hologramManager.createLeaderboard(id, loc, lines);
+
+                // Persist hologram definition to config (format A)
+                FileConfiguration cfg = plugin.getConfig();
+                String base = "holograms." + id;
+                cfg.set(base + ".world", loc.getWorld().getName());
+                cfg.set(base + ".x", loc.getX());
+                cfg.set(base + ".y", loc.getY());
+                cfg.set(base + ".z", loc.getZ());
+                // Extra metadata for robustness
+                cfg.set(base + ".gamemode", gamemode);
+                cfg.set(base + ".type", "wins");
+                cfg.set(base + ".lines", lines);
+
+                plugin.saveConfig();
 
                 player.sendMessage("§aLeaderboard created!");
             });

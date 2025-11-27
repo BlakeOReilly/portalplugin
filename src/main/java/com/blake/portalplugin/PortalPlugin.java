@@ -1,3 +1,4 @@
+// src/main/java/com/blake/portalplugin/PortalPlugin.java
 package com.blake.portalplugin;
 
 import com.blake.portalplugin.arenas.ArenaManager;
@@ -40,13 +41,19 @@ public class PortalPlugin extends JavaPlugin {
     private RankManager rankManager;
     private WinLocationManager winLocationManager;
 
-    // Persistent spawn sign entries (format: world,x,y,z)
+    private CollectiblesManager collectiblesManager;
+    private NavigationManager navigationManager;
+    private CosmeticsManager cosmeticsManager;
+
     private final List<String> spawnSignEntries = new ArrayList<>();
 
     @Override
     public void onEnable() {
 
         saveDefaultConfig();
+
+        // Plugin messaging channel for Velocity/BungeeCord
+        getServer().getMessenger().registerOutgoingPluginChannel(this, "BungeeCord");
 
         this.gameStateManager = new GameStateManager(this);
         this.arenaManager = new ArenaManager(this);
@@ -55,18 +62,19 @@ public class PortalPlugin extends JavaPlugin {
 
         this.winLocationManager = new WinLocationManager(this);
 
-        // Load queues and sign storage
+        this.collectiblesManager = new CollectiblesManager(this);
+        this.navigationManager = new NavigationManager(this);
+        this.cosmeticsManager = new CosmeticsManager(this);
+
         List<String> savedQueues = getConfig().getStringList("queues");
         queueManager.loadQueuesFromConfig(savedQueues);
 
         List<String> savedSigns = getConfig().getStringList("queue-signs");
         queueManager.loadSignsFromConfig(savedSigns);
 
-        // Load spawn signs
         spawnSignEntries.clear();
         spawnSignEntries.addAll(getConfig().getStringList("spawn-signs"));
 
-        // Restore sign metadata after worlds load
         Bukkit.getScheduler().runTask(this, () -> queueManager.restoreSignMetadata(this));
         Bukkit.getScheduler().runTask(this, this::restoreSpawnSignMetadata);
 
@@ -80,7 +88,9 @@ public class PortalPlugin extends JavaPlugin {
         this.rankManager = new RankManager(this, databaseManager);
         rankManager.ensureTable();
 
-        this.hologramManager = new HologramManager();
+        // Holograms (persistent leaderboards)
+        this.hologramManager = new HologramManager(this);
+        hologramManager.loadPersistentHolograms(statsManager);
 
         this.arenaEliminationHandler =
                 new ArenaEliminationHandler(this, gameStateManager, hubSpawnManager, arenaManager, statsManager);
@@ -116,7 +126,6 @@ public class PortalPlugin extends JavaPlugin {
             getConfig().set("queue-signs", queueManager.getSignEntries());
         }
 
-        // Save spawn signs
         getConfig().set("spawn-signs", new ArrayList<>(spawnSignEntries));
 
         saveConfig();
@@ -162,18 +171,21 @@ public class PortalPlugin extends JavaPlugin {
 
         if (getCommand("createscoreboard") != null)
             getCommand("createscoreboard").setExecutor(
-                    new CreateScoreboardCommand(statsManager, hologramManager));
+                    new CreateScoreboardCommand(statsManager, hologramManager)
+            );
 
         if (getCommand("gameset") != null)
             getCommand("gameset").setExecutor(new GameSetCommand(this));
 
         if (getCommand("currency") != null)
             getCommand("currency").setExecutor(
-                    new CurrencyCommand(currencyManager, gameStateManager));
+                    new CurrencyCommand(currencyManager, gameStateManager)
+            );
 
         if (getCommand("clearsigns") != null)
             getCommand("clearsigns").setExecutor(
-                    new ClearSignsCommand(queueManager, gameStateManager, this));
+                    new ClearSignsCommand(queueManager, gameStateManager, this)
+            );
 
         if (getCommand("gamewinloc") != null)
             getCommand("gamewinloc").setExecutor(new SetWinLocationCommand(winLocationManager));
@@ -183,32 +195,49 @@ public class PortalPlugin extends JavaPlugin {
 
         Bukkit.getPluginManager().registerEvents(
                 new PlayerJoinQuitListener(gameStateManager, arenaManager, arenaEliminationHandler, hubSpawnManager),
-                this);
+                this
+        );
 
         Bukkit.getPluginManager().registerEvents(
                 new PlayerArenaEliminationListener(arenaManager, arenaEliminationHandler),
-                this);
+                this
+        );
 
         Bukkit.getPluginManager().registerEvents(
                 new PlayerDeathSpawnListener(arenaManager, arenaEliminationHandler, gameStateManager, hubSpawnManager),
-                this);
+                this
+        );
 
         Bukkit.getPluginManager().registerEvents(
                 new QueueSignListener(queueManager),
-                this);
+                this
+        );
 
         Bukkit.getPluginManager().registerEvents(
                 new SpawnSignListener(hubSpawnManager),
-                this);
+                this
+        );
 
         Bukkit.getPluginManager().registerEvents(
                 new BlockBreakListener(gameStateManager, this),
-                this);
+                this
+        );
 
-        // NEW — Stats GUI interaction protection
         Bukkit.getPluginManager().registerEvents(
-                new StatsGUIListener(),
-                this);
+                new CollectiblesGUIListener(this, collectiblesManager),
+                this
+        );
+
+        Bukkit.getPluginManager().registerEvents(
+                new NavigationGUIListener(this, navigationManager),
+                this
+        );
+
+        // FIXED: Correct constructor (plugin, cosmeticsManager)
+        Bukkit.getPluginManager().registerEvents(
+                new CosmeticsGUIListener(this, cosmeticsManager),
+                this
+        );
 
         Bukkit.getPluginManager().registerEvents(
                 new org.bukkit.event.Listener() {
@@ -216,10 +245,12 @@ public class PortalPlugin extends JavaPlugin {
                     public void onJoin(PlayerJoinEvent e) {
                         Bukkit.getScheduler().runTask(
                                 PortalPlugin.this,
-                                () -> scoreboardManager.refreshAll());
+                                () -> scoreboardManager.refreshAll()
+                        );
                     }
                 },
-                this);
+                this
+        );
     }
 
     private void restoreSpawnSignMetadata() {
@@ -251,7 +282,6 @@ public class PortalPlugin extends JavaPlugin {
                 + signBlock.getZ();
 
         spawnSignEntries.add(entry);
-
         signBlock.setMetadata("spawn_sign", new FixedMetadataValue(this, true));
     }
 
@@ -267,6 +297,9 @@ public class PortalPlugin extends JavaPlugin {
     public CurrencyManager getCurrencyManager() { return currencyManager; }
     public ServerRegistryManager getServerRegistryManager() { return serverRegistryManager; }
     public WinLocationManager getWinLocationManager() { return winLocationManager; }
+    public CollectiblesManager getCollectiblesManager() { return collectiblesManager; }
+    public NavigationManager getNavigationManager() { return navigationManager; }
+    public CosmeticsManager getCosmeticsManager() { return cosmeticsManager; }
 
     public String getActiveGame() {
         return getConfig().getString("active-game", "none");
