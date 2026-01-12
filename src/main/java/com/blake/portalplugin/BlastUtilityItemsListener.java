@@ -44,6 +44,7 @@ public class BlastUtilityItemsListener implements Listener {
     private final PortalPlugin plugin;
     private final GameStateManager gsm;
     private final Map<UUID, Long> enderSoarActive = new HashMap<>();
+    private final Map<UUID, TargetMode> targetModeByPlayer = new HashMap<>();
 
     public BlastUtilityItemsListener(PortalPlugin plugin, GameStateManager gsm) {
         this.plugin = plugin;
@@ -87,11 +88,11 @@ public class BlastUtilityItemsListener implements Listener {
             }
             case "TRACKER" -> {
                 e.setCancelled(true);
-                trackNearestEnemy(p, bm);
+                openTargetMenu(p, bm, TargetMode.TRACKER);
             }
             case "HOMING" -> {
                 e.setCancelled(true);
-                openHomingTargetMenu(p, bm);
+                openTargetMenu(p, bm, TargetMode.HOMING);
             }
             case "ENDER_SOAR" -> {
                 e.setCancelled(true);
@@ -102,7 +103,12 @@ public class BlastUtilityItemsListener implements Listener {
             case "TUNNELER" -> {
                 e.setCancelled(true);
                 if (consumeOneFromHand(p)) {
-                    digWoolTunnel(p);
+                    Block clicked = e.getClickedBlock();
+                    if (clicked != null) {
+                        digWoolTunnel(p, clicked.getLocation());
+                    } else {
+                        digWoolTunnel(p, p.getLocation().getBlock().getLocation());
+                    }
                 }
             }
             case "FIREBALL" -> {
@@ -133,11 +139,11 @@ public class BlastUtilityItemsListener implements Listener {
         BlastTeam team = bm.getTeam(p);
         Material wool = (team != null) ? BlastItems.getTeamWool(team) : Material.WHITE_WOOL;
 
-        Location base = p.getLocation().getBlock().getLocation();
+        Location base = p.getLocation().getBlock().getRelative(0, -1, 0).getLocation();
         Vector dir = p.getLocation().getDirection().setY(0).normalize();
 
         // Block in front of player
-        Location front = base.clone().add(dir.clone().multiply(1.0));
+        Location front = base.clone().add(dir.clone().multiply(1.0)).add(0, 1, 0);
 
         // Determine perpendicular axis for width
         Vector right = new Vector(-dir.getZ(), 0, dir.getX()).normalize();
@@ -170,20 +176,7 @@ public class BlastUtilityItemsListener implements Listener {
         }
     }
 
-    private void trackNearestEnemy(Player p, BlastMinigameManager bm) {
-        Player target = findNearestEnemy(p, bm, 200.0);
-        if (target == null) {
-            p.sendMessage("§c[BLAST] No enemy found to track.");
-            p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.7f, 0.6f);
-            return;
-        }
-
-        p.setCompassTarget(target.getLocation());
-        p.sendMessage("§e[BLAST] Tracking: §f" + target.getName());
-        p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.7f, 1.6f);
-    }
-
-    private void openHomingTargetMenu(Player p, BlastMinigameManager bm) {
+    private void openTargetMenu(Player p, BlastMinigameManager bm, TargetMode mode) {
         List<Player> targets = new ArrayList<>();
         for (Player other : Bukkit.getOnlinePlayers()) {
             if (other == null || !other.isOnline()) continue;
@@ -205,6 +198,7 @@ public class BlastUtilityItemsListener implements Listener {
         }
 
         var inv = Bukkit.createInventory(null, 54, HOMING_TITLE);
+        targetModeByPlayer.put(p.getUniqueId(), mode);
 
         int index = 0;
         for (Player target : targets) {
@@ -268,14 +262,24 @@ public class BlastUtilityItemsListener implements Listener {
             return;
         }
 
-        if (!consumeItemById(p, "HOMING")) {
-            p.sendMessage("§c[BLAST] You no longer have a homing missile.");
-            p.closeInventory();
-            return;
+        TargetMode mode = targetModeByPlayer.getOrDefault(p.getUniqueId(), TargetMode.HOMING);
+        targetModeByPlayer.remove(p.getUniqueId());
+        if (mode == TargetMode.HOMING) {
+            if (!consumeItemById(p, "HOMING")) {
+                p.sendMessage("§c[BLAST] You no longer have a homing missile.");
+                p.closeInventory();
+                return;
+            }
         }
 
         p.closeInventory();
-        launchHomingParticle(p, target, bm);
+        if (mode == TargetMode.TRACKER) {
+            p.setCompassTarget(target.getLocation());
+            p.sendMessage("§e[BLAST] Tracking: §f" + target.getName());
+            p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.7f, 1.6f);
+        } else {
+            launchHomingParticle(p, target, bm);
+        }
     }
 
     private boolean consumeItemById(Player p, String id) {
@@ -370,23 +374,28 @@ public class BlastUtilityItemsListener implements Listener {
         p.playSound(p.getLocation(), Sound.ENTITY_ENDER_PEARL_THROW, 0.8f, 1.2f);
     }
 
-    private void digWoolTunnel(Player p) {
-        Location base = p.getLocation().getBlock().getLocation();
+    private void digWoolTunnel(Player p, Location start) {
+        if (start == null || start.getWorld() == null) return;
         Vector dir = p.getLocation().getDirection().setY(0).normalize();
 
         int carved = 0;
 
-        for (int i = 1; i <= 20; i++) {
-            Location step = base.clone().add(dir.clone().multiply(i));
+        for (int i = 0; i < 20; i++) {
+            Location step = start.clone().add(dir.clone().multiply(i));
             Block lower = step.getBlock();
             Block upper = lower.getRelative(0, 1, 0);
 
-            if (!BlastItems.isColoredWool(lower.getType()) || !BlastItems.isColoredWool(upper.getType())) {
+            if (!BlastItems.isColoredWool(lower.getType())) {
                 break;
             }
 
             lower.setType(Material.AIR, false);
-            upper.setType(Material.AIR, false);
+            if (BlastItems.isColoredWool(upper.getType())) {
+                upper.setType(Material.AIR, false);
+            } else {
+                carved++;
+                break;
+            }
             carved++;
         }
 
@@ -438,7 +447,8 @@ public class BlastUtilityItemsListener implements Listener {
             impact.getWorld().playSound(impact, Sound.ENTITY_GENERIC_EXPLODE, 0.9f, 1.1f);
 
             // Small AoE elim
-            bm.applyBigAoE(shooter, impact, 3.5, null);
+            bm.applyBigAoE(shooter, impact, 4.5, null);
+            breakWoolBurst(impact, 2);
 
             try { fb.remove(); } catch (Throwable ignored) {}
             return;
@@ -457,7 +467,7 @@ public class BlastUtilityItemsListener implements Listener {
             impact.getWorld().playSound(impact, Sound.ENTITY_GENERIC_EXPLODE, 0.9f, 0.9f);
 
             if (bm != null) {
-                double radius = 5.0;
+                double radius = 10.0;
                 for (Player victim : impact.getWorld().getPlayers()) {
                     if (victim == null || !victim.isOnline()) continue;
                     if (gsm.getGameState(victim) != GameState.BLAST) continue;
@@ -514,6 +524,82 @@ public class BlastUtilityItemsListener implements Listener {
         if (e.getProjectile() instanceof Arrow arrow) {
             arrow.getPersistentDataContainer().set(new NamespacedKey(plugin, "blast_boom_slingshot"),
                     PersistentDataType.INTEGER, 1);
+        }
+
+        consumeItemFromHandsById(p, "BOOM_SLINGSHOT");
+    }
+
+    @EventHandler
+    public void onEnderSoarTeleport(PlayerTeleportEvent e) {
+        if (e.getCause() != PlayerTeleportEvent.TeleportCause.ENDER_PEARL) return;
+        Player p = e.getPlayer();
+        if (p == null) return;
+
+        Long started = enderSoarActive.get(p.getUniqueId());
+        if (started == null) return;
+
+        e.setCancelled(true);
+    }
+
+    private Location findSafeLanding(Location impact, Player player) {
+        if (impact == null || impact.getWorld() == null) return player.getLocation();
+
+        Location base = impact.getBlock().getLocation().add(0.5, 0, 0.5);
+
+        for (int i = 0; i <= 3; i++) {
+            Location check = base.clone().add(0, i, 0);
+            Block feet = check.getBlock();
+            Block head = feet.getRelative(0, 1, 0);
+            Block below = feet.getRelative(0, -1, 0);
+
+            if (feet.isPassable() && head.isPassable() && !below.isPassable()) {
+                return check.clone().add(0, 0.1, 0);
+            }
+        }
+
+        return base.clone().add(0, 1.0, 0);
+    }
+
+    private void consumeItemFromHandsById(Player p, String id) {
+        ItemStack main = p.getInventory().getItemInMainHand();
+        if (main != null && !main.getType().isAir()) {
+            String mainId = BlastShopItems.getShopId(plugin, main);
+            if (id.equalsIgnoreCase(mainId)) {
+                consumeOneFromHand(p);
+                return;
+            }
+        }
+
+        ItemStack off = p.getInventory().getItemInOffHand();
+        if (off != null && !off.getType().isAir()) {
+            String offId = BlastShopItems.getShopId(plugin, off);
+            if (!id.equalsIgnoreCase(offId)) return;
+
+            int amt = off.getAmount();
+            if (amt <= 1) {
+                p.getInventory().setItemInOffHand(null);
+            } else {
+                off.setAmount(amt - 1);
+                p.getInventory().setItemInOffHand(off);
+            }
+            p.updateInventory();
+        }
+    }
+
+    private void breakWoolBurst(Location center, int radius) {
+        if (center == null || center.getWorld() == null) return;
+        int r = Math.max(1, radius);
+
+        for (int x = -r; x <= r; x++) {
+            for (int y = -r; y <= r; y++) {
+                for (int z = -r; z <= r; z++) {
+                    Location at = center.clone().add(x, y, z);
+                    Block block = at.getBlock();
+                    if (BlastItems.isColoredWool(block.getType())) {
+                        block.setType(Material.AIR, false);
+                    }
+                }
+            }
         }
     }
 
@@ -574,5 +660,10 @@ public class BlastUtilityItemsListener implements Listener {
         }
 
         return bestP;
+    }
+
+    private enum TargetMode {
+        HOMING,
+        TRACKER
     }
 }
