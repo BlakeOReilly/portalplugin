@@ -67,6 +67,8 @@ public class PortalPlugin extends JavaPlugin {
 
     // NEW: BLAST powerups manager (used by blaster cooldown adjustments, etc.)
     private BlastPowerupManager blastPowerupManager;
+    private BlastCooldownTracker blastCooldownTracker;
+    private BlastCooldownHudService blastCooldownHudService;
 
     private final List<String> spawnSignEntries = new ArrayList<>();
 
@@ -97,6 +99,13 @@ public class PortalPlugin extends JavaPlugin {
 
         // NEW: powerups manager (keep before listeners register)
         this.blastPowerupManager = new BlastPowerupManager(this, gameStateManager);
+        this.blastCooldownTracker = new BlastCooldownTracker();
+        this.blastCooldownHudService = new BlastCooldownHudService(
+                this,
+                gameStateManager,
+                blastPowerupManager,
+                blastCooldownTracker
+        );
 
         this.blastGeneratorService = new BlastGeneratorService(this, gameStateManager);
         this.blastGeneratorService.start();
@@ -179,6 +188,10 @@ public class PortalPlugin extends JavaPlugin {
 
         if (blastDiamondSpawnerService != null) {
             blastDiamondSpawnerService.stop();
+        }
+
+        if (blastCooldownHudService != null) {
+            blastCooldownHudService.shutdown();
         }
 
         if (queueManager != null) {
@@ -384,12 +397,12 @@ public class PortalPlugin extends JavaPlugin {
         );
 
         Bukkit.getPluginManager().registerEvents(
-                new BlastBlasterListener(this, gameStateManager),
+                new BlastBlasterListener(this, gameStateManager, blastCooldownTracker),
                 this
         );
 
         Bukkit.getPluginManager().registerEvents(
-                new BlastDashListener(this, gameStateManager),
+                new BlastDashListener(this, gameStateManager, blastCooldownTracker),
                 this
         );
 
@@ -424,8 +437,8 @@ public class PortalPlugin extends JavaPlugin {
 
         registerOptionalListener(
                 "com.blake.portalplugin.listeners.BlastAdvancedBlasterListener",
-                new Class<?>[]{PortalPlugin.class, GameStateManager.class},
-                new Object[]{this, gameStateManager}
+                new Class<?>[]{PortalPlugin.class, GameStateManager.class, BlastCooldownTracker.class},
+                new Object[]{this, gameStateManager, blastCooldownTracker}
         );
 
         // NEW: BLAST diamond HUD + pickup tracking

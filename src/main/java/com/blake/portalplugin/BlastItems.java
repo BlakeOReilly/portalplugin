@@ -6,6 +6,7 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
@@ -21,6 +22,12 @@ public final class BlastItems {
     private static final String TYPE_SCATTER = "scatter";
     private static final String TYPE_STRIKE = "strike";
     private static final String TYPE_RANGE = "range";
+
+    private static final String PDC_USES_LEFT = "blast_blaster_uses_left";
+    private static final String PDC_USES_MAX = "blast_blaster_uses_max";
+
+    private static final int STRIKE_MAX_USES = 4;
+    private static final int RANGE_MAX_USES = 20;
 
     private BlastItems() {}
 
@@ -96,6 +103,7 @@ public final class BlastItems {
             );
             it.setItemMeta(meta);
         }
+        setLimitedUses(plugin, it, STRIKE_MAX_USES, STRIKE_MAX_USES);
         return it;
     }
 
@@ -114,6 +122,7 @@ public final class BlastItems {
             );
             it.setItemMeta(meta);
         }
+        setLimitedUses(plugin, it, RANGE_MAX_USES, RANGE_MAX_USES);
         return it;
     }
 
@@ -190,6 +199,86 @@ public final class BlastItems {
 
         String name = meta.hasDisplayName() ? meta.getDisplayName() : "";
         return stripColor(name).equalsIgnoreCase("Range Blaster");
+    }
+
+    public static int getLimitedUsesMax(Plugin plugin, ItemStack it) {
+        if (it == null || plugin == null) return 0;
+        ItemMeta meta = it.getItemMeta();
+        if (meta == null) return 0;
+
+        Integer pdcMax = meta.getPersistentDataContainer().get(
+                new NamespacedKey(plugin, PDC_USES_MAX),
+                PersistentDataType.INTEGER
+        );
+        if (pdcMax != null && pdcMax > 0) return pdcMax;
+
+        if (isStrikeBlaster(plugin, it)) return STRIKE_MAX_USES;
+        if (isRangeBlaster(plugin, it)) return RANGE_MAX_USES;
+        return 0;
+    }
+
+    public static int getLimitedUsesLeft(Plugin plugin, ItemStack it) {
+        if (it == null || plugin == null) return 0;
+        int max = getLimitedUsesMax(plugin, it);
+        if (max <= 0) return 0;
+
+        ItemMeta meta = it.getItemMeta();
+        if (meta == null) return max;
+
+        Integer left = meta.getPersistentDataContainer().get(
+                new NamespacedKey(plugin, PDC_USES_LEFT),
+                PersistentDataType.INTEGER
+        );
+        if (left == null) return max;
+        return Math.max(0, Math.min(max, left));
+    }
+
+    public static int consumeLimitedUse(Plugin plugin, ItemStack it) {
+        if (it == null || plugin == null) return -1;
+        int max = getLimitedUsesMax(plugin, it);
+        if (max <= 0) return -1;
+
+        int left = getLimitedUsesLeft(plugin, it);
+        if (left <= 0) {
+            setLimitedUses(plugin, it, 0, max);
+            return 0;
+        }
+
+        int next = Math.max(0, left - 1);
+        setLimitedUses(plugin, it, next, max);
+        return next;
+    }
+
+    public static void setLimitedUses(Plugin plugin, ItemStack it, int usesLeft, int usesMax) {
+        if (it == null || plugin == null) return;
+        if (usesMax <= 0) return;
+
+        ItemMeta meta = it.getItemMeta();
+        if (meta == null) return;
+
+        int clampedLeft = Math.max(0, Math.min(usesMax, usesLeft));
+        meta.getPersistentDataContainer().set(
+                new NamespacedKey(plugin, PDC_USES_LEFT),
+                PersistentDataType.INTEGER,
+                clampedLeft
+        );
+        meta.getPersistentDataContainer().set(
+                new NamespacedKey(plugin, PDC_USES_MAX),
+                PersistentDataType.INTEGER,
+                usesMax
+        );
+
+        if (meta instanceof Damageable damageable) {
+            int maxDurability = it.getType().getMaxDurability();
+            if (maxDurability > 0) {
+                double ratio = (double) clampedLeft / (double) usesMax;
+                int damage = (int) Math.round((1.0 - ratio) * maxDurability);
+                damage = Math.max(0, Math.min(maxDurability, damage));
+                damageable.setDamage(damage);
+            }
+        }
+
+        it.setItemMeta(meta);
     }
 
     public static boolean isColoredWool(Material mat) {

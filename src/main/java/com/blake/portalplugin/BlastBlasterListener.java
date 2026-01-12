@@ -30,9 +30,7 @@ public class BlastBlasterListener implements Listener {
 
     private final PortalPlugin plugin;
     private final GameStateManager gameStateManager;
-
-    private final Map<UUID, Long> lastBasicFireMs = new HashMap<>();
-    private final Map<UUID, Long> lastBigFireMs = new HashMap<>();
+    private final BlastCooldownTracker cooldownTracker;
 
     private static final long BASIC_COOLDOWN_MS = 800;
     private static final long BIG_COOLDOWN_MS = 2500;
@@ -42,9 +40,10 @@ public class BlastBlasterListener implements Listener {
     // Hotbar index (9th slot) - previously used by diamond HUD logic
     private static final int DIAMOND_SLOT = 8;
 
-    public BlastBlasterListener(PortalPlugin plugin, GameStateManager gsm) {
+    public BlastBlasterListener(PortalPlugin plugin, GameStateManager gsm, BlastCooldownTracker cooldownTracker) {
         this.plugin = plugin;
         this.gameStateManager = gsm;
+        this.cooldownTracker = cooldownTracker;
     }
 
     @EventHandler
@@ -103,23 +102,31 @@ public class BlastBlasterListener implements Listener {
 
     private boolean canFireBasic(Player p) {
         long now = System.currentTimeMillis();
-        long last = lastBasicFireMs.getOrDefault(p.getUniqueId(), 0L);
 
         long cd = adjustedCooldownMs(p, BASIC_COOLDOWN_MS);
-        if (now - last < cd) return false;
+        if (cooldownTracker != null
+                && !cooldownTracker.isReady(p.getUniqueId(), BlastCooldownTracker.CooldownType.BASIC, now)) {
+            return false;
+        }
 
-        lastBasicFireMs.put(p.getUniqueId(), now);
+        if (cooldownTracker != null) {
+            cooldownTracker.startCooldown(p.getUniqueId(), BlastCooldownTracker.CooldownType.BASIC, cd, now);
+        }
         return true;
     }
 
     private boolean canFireBig(Player p) {
         long now = System.currentTimeMillis();
-        long last = lastBigFireMs.getOrDefault(p.getUniqueId(), 0L);
 
         long cd = adjustedCooldownMs(p, BIG_COOLDOWN_MS);
-        if (now - last < cd) return false;
+        if (cooldownTracker != null
+                && !cooldownTracker.isReady(p.getUniqueId(), BlastCooldownTracker.CooldownType.BIG, now)) {
+            return false;
+        }
 
-        lastBigFireMs.put(p.getUniqueId(), now);
+        if (cooldownTracker != null) {
+            cooldownTracker.startCooldown(p.getUniqueId(), BlastCooldownTracker.CooldownType.BIG, cd, now);
+        }
         return true;
     }
 
