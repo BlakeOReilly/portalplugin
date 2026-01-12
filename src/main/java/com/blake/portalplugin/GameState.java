@@ -1,11 +1,13 @@
-// src/main/java/com/blake/portalplugin/GameState.java
 package com.blake.portalplugin;
 
 public enum GameState {
     HUB,
     ARENA,
     SPLEEF,
-    ADMIN;   // NEW
+    PVP,
+    SUMO,
+    BLAST,
+    ADMIN;
 
     public static GameState fromString(String s) {
         if (s == null) return null;

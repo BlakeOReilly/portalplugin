@@ -48,6 +48,14 @@ public class GameQueueManager {
         return queues.get(name.toLowerCase());
     }
 
+    public GameQueue getOrCreateQueue(String name) {
+        if (name == null || name.isBlank()) return null;
+        String key = name.toLowerCase();
+        GameQueue q = queues.get(key);
+        if (q == null) q = createQueue(key);
+        return q;
+    }
+
     public List<String> getQueueNames() {
         return new ArrayList<>(queues.keySet());
     }
@@ -60,6 +68,14 @@ public class GameQueueManager {
             if (!queues.containsKey(key)) {
                 createQueue(key);
             }
+        }
+    }
+
+    public void removePlayerFromAllQueues(Player p) {
+        if (p == null) return;
+        UUID id = p.getUniqueId();
+        for (GameQueue q : queues.values()) {
+            q.getQueuedPlayers().remove(id);
         }
     }
 
@@ -199,11 +215,13 @@ public class GameQueueManager {
         Collection<Arena> allArenas = arenaManager.getAllArenas();
         Arena chosenArena = null;
 
-        // Try to reuse an active arena that is in use, not started, and has space.
+        // Try to reuse an active arena that is in use, not started, and has space,
+        // BUT only if it is assigned to the same game.
         for (Arena arena : allArenas) {
             if (arena.isInUse()
                     && !arena.hasStarted()
-                    && arena.getPlayers().size() < arena.getMaxPlayers()) {
+                    && arena.getPlayers().size() < arena.getMaxPlayers()
+                    && arena.matchesAssignedGame(key)) {
                 chosenArena = arena;
                 break;
             }
@@ -221,6 +239,7 @@ public class GameQueueManager {
                         && arena.getPlayers().size() < arena.getMaxPlayers()) {
                     chosenArena = arena;
                     arena.setInUse(true);
+                    arena.setAssignedGame(key); // NEW: bind arena to this game type
                     break;
                 }
             }
@@ -228,6 +247,17 @@ public class GameQueueManager {
 
         if (chosenArena == null) return;
         if (chosenArena.getSpawnPoints().isEmpty()) return;
+
+        // Safety: if we reused an arena but its assignedGame was somehow unset (older data),
+        // do NOT allow mixing; only set it when empty.
+        if (chosenArena.getAssignedGame() == null || chosenArena.getAssignedGame().isBlank()) {
+            if (chosenArena.getPlayers().isEmpty()) {
+                chosenArena.setAssignedGame(key);
+            } else {
+                // Arena has players but no assigned game -> refuse to mix games into it
+                return;
+            }
+        }
 
         List<UUID> snapshot = new ArrayList<>(queue.getQueuedPlayers());
         List<UUID> remove = new ArrayList<>();

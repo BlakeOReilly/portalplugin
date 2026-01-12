@@ -1,3 +1,4 @@
+// src/main/java/com/blake/portalplugin/ArenaEliminationHandler.java
 package com.blake.portalplugin;
 
 import com.blake.portalplugin.arenas.Arena;
@@ -68,13 +69,10 @@ public class ArenaEliminationHandler {
 
                 arena.broadcast("&a" + winner.getName() + " has WON the game!");
 
-                // NEW: teleport winner to global win location if set
                 Location winLoc = plugin.getWinLocationManager().getWinLocation();
-
                 if (winLoc != null) {
                     winner.teleport(winLoc);
                 } else {
-                    // fallback
                     Location hub = hubSpawnManager.getHubSpawn();
                     if (hub != null) winner.teleport(hub);
                 }
@@ -89,8 +87,22 @@ public class ArenaEliminationHandler {
             Bukkit.getLogger().info("[PortalPlugin] Arena '" + arena.getName()
                     + "' participants for stats: " + participants.size());
 
+            // IMPORTANT: use the arena's assigned game as the gamemode key (pvp, spleef, etc.)
+            String gamemode = arena.getAssignedGame();
+            if (gamemode == null || gamemode.isBlank()) {
+                // Fallback to active-game if you use it per-server
+                gamemode = plugin.getActiveGame();
+            }
+            if (gamemode == null || gamemode.isBlank()) {
+                gamemode = "unknown";
+            }
+            gamemode = gamemode.toLowerCase();
+
+            Bukkit.getLogger().info("[PortalPlugin] Arena '" + arena.getName()
+                    + "' recording stats gamemode='" + gamemode + "'");
+
             if (statsManager != null && winnerId != null && !participants.isEmpty()) {
-                statsManager.recordGameResult("spleef", winnerId, participants);
+                statsManager.recordGameResult(gamemode, winnerId, participants);
             } else {
                 Bukkit.getLogger().warning("[PortalPlugin] Stats not recorded: "
                         + "statsManager=" + (statsManager != null)

@@ -2,6 +2,7 @@ package com.blake.portalplugin.arenas.tasks;
 
 import com.blake.portalplugin.GameState;
 import com.blake.portalplugin.GameStateManager;
+import com.blake.portalplugin.PortalPlugin;
 import com.blake.portalplugin.arenas.Arena;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -35,33 +36,107 @@ public class ArenaCountdownTask extends BukkitRunnable {
             return;
         }
 
+        String gameNameDisplay = arena.getAssignedGameDisplayName();
+
         // =========================
         // COUNTDOWN FINISHED
         // =========================
         if (time <= 0) {
+
             arena.broadcast("&aGame starting!");
             arena.setStarted(true);
+
+            // Clear our task reference on the arena, then stop the runnable
             arena.clearCountdown();
             cancel();
 
             Plugin plugin = Bukkit.getPluginManager().getPlugin("PortalPlugin");
-            if (plugin == null) {
-                System.out.println("[Arena] FATAL: PortalPlugin NOT FOUND");
+            if (!(plugin instanceof PortalPlugin portal)) {
+                System.out.println("[Arena] FATAL: PortalPlugin NOT FOUND (or wrong type)");
                 return;
             }
 
-            GameStateManager gsm = ((com.blake.portalplugin.PortalPlugin) plugin).getGameStateManager();
+            GameStateManager gsm = portal.getGameStateManager();
+
+            String rawAssigned = arena.getAssignedGame();
+            String normalized = normalizeGameKey(rawAssigned);
+
+            GameState targetState = resolveTargetState(normalized);
+
+            if (targetState == GameState.ARENA) {
+                // If we failed to resolve a real game state, keep players in ARENA and log it.
+                portal.getLogger().warning("[PortalPlugin] Arena '" + arena.getName()
+                        + "' assignedGame raw='" + rawAssigned
+                        + "' normalized='" + normalized
+                        + "' -> no matching GameState found. Leaving players in ARENA.");
+            } else {
+                portal.getLogger().info("[PortalPlugin] Arena '" + arena.getName()
+                        + "' starting assignedGame='" + normalized
+                        + "' -> GameState=" + targetState.name());
+            }
 
             for (Player p : arena.getOnlinePlayers()) {
-                gsm.setGameState(p, GameState.SPLEEF);
+                gsm.setGameState(p, targetState);
             }
+
             return;
         }
 
         // =========================
         // SEND COUNTDOWN
         // =========================
-        arena.broadcast("&eSpleef begins in &c" + time + "&e seconds!");
+        arena.broadcast("&e" + gameNameDisplay + " begins in &c" + time + "&e seconds!");
         time--;
+    }
+
+    /**
+     * Normalizes arena assigned game keys so queues like "Spleef-1" still resolve.
+     * Examples:
+     *  - "Spleef"   -> "spleef"
+     *  - "spleef-1" -> "spleef"
+     *  - "Pvp-2"    -> "pvp"
+     *  - " sumo "   -> "sumo"
+     */
+    private String normalizeGameKey(String gameKey) {
+        if (gameKey == null) return null;
+
+        String s = gameKey.trim().toLowerCase();
+
+        // Common pattern: "pvp-1", "spleef-2"
+        int dash = s.indexOf('-');
+        if (dash > 0) s = s.substring(0, dash);
+
+        // Remove trailing digits if any: "sumo1" -> "sumo"
+        while (!s.isEmpty() && Character.isDigit(s.charAt(s.length() - 1))) {
+            s = s.substring(0, s.length() - 1);
+        }
+
+        s = s.trim();
+        return s.isEmpty() ? null : s;
+    }
+
+    private GameState resolveTargetState(String gameKey) {
+        if (gameKey == null || gameKey.isBlank()) return GameState.ARENA;
+
+        // First: if your enum supports aliases (recommended)
+        try {
+            GameState byFromString = GameState.fromString(gameKey);
+            if (byFromString != null) return byFromString;
+        } catch (Throwable ignored) {
+            // If fromString ever changes/gets removed, we still have fallback logic below.
+        }
+
+        // Fallback: direct enum match
+        try {
+            return GameState.valueOf(gameKey.trim().toUpperCase());
+        } catch (Exception ignored) {}
+
+        // Final fallback: explicit mapping for known games
+        return switch (gameKey.trim().toLowerCase()) {
+            case "pvp" -> GameState.PVP;
+            case "spleef" -> GameState.SPLEEF;
+            case "sumo" -> GameState.SUMO;
+            default -> GameState.ARENA;
+        };
     }
 }

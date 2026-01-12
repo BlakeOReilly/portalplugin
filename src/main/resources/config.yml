@@ -1,53 +1,75 @@
-# Active game for this server (set by /gameset)
-# Example: spleef
 active-game: none
 
-# Per-gamestate permissions granted dynamically when a player enters the state.
-# Add or remove nodes to fit your server.
+hub-type: arena
+server-minigame: none
+
+database:
+  host: "127.0.0.1"
+  port: 3306
+  name: "mc_stats"
+  user: "portal"
+  pass: "mc_password"
+  connect-timeout-ms: 3000
+  socket-timeout-ms: 5000
+
 permissions:
   HUB:
     - minecraft.command.msg
     - essentials.nick
     - myplugin.hub.warp
-  LOBBY:
-    - minecraft.command.list
-    - myplugin.lobby.queue
+  ARENA: []
   SPLEEF:
     - myplugin.spleef.play
     - myplugin.spleef.kit.basic
+  PVP: []
   ADMIN:
     - '*'
     - portalplugin.currency.admin
 
-# Persisted game queues created by /creategame
-# Example: ["spleef", "tntrun"]
 queues: []
-
-# Persisted queue signs: world,x,y,z,game
-# Example: ["world,100,65,200,spleef"]
 queue-signs: []
 
-# -------------------------------------------------------
-# Server Registry (used for server auto-numbering)
-# -------------------------------------------------------
 server-registry:
   hostname: "127.0.0.1"
 
-# -------------------------------------------------------
-# PERSISTED HOLOGRAM LEADERBOARDS (FORMAT A)
-# -------------------------------------------------------
-# Each hologram is stored under holograms.<id>
-# Example:
-# holograms:
-#   spleef_wins:
-#     world: world
-#     x: 100.5
-#     y: 80.0
-#     z: 200.5
-#     gamemode: spleef
-#     type: wins
-#     lines:
-#       - "§eTop Wins – §bSpleef"
-#       - "§61. §fPlayerA §7- §a32"
-#       - "§62. §fPlayerB §7- §a28"
 holograms: {}
+
+arena-cleanup:
+  enabled: true
+  padding: 6
+  yPaddingDown: 6
+  yPaddingUp: 24
+
+  spawnRadius: 80
+  spawnRadiusYDown: 30
+  spawnRadiusYUp: 60
+
+mob-spawns:
+  enabled: true
+  block-custom: false
+  only-block-in-hub-arena: false
+
+minigame-queue:
+  countdown-seconds: 30
+
+blast:
+  active-map: ""
+  regenerate-on-start: false
+  ignore-air: true
+  copy-entities: false
+
+  # IMPORTANT: disable the diamond HUD so diamonds behave normally (no locked slot / pane / cleanup)
+  diamond-hud:
+    enabled: false
+
+  # Region snapshot saving (used by /blastmap saveregion + /blastmap regen)
+  region:
+    # Maximum blocks allowed in a saved selection (unless bypass permission)
+    max-blocks: 250000
+    # How many blocks to paste per tick during /blastmap regen
+    blocks-per-tick: 5000
+
+  # Queue settings for minigame hub mode (used by MinigameQueueManager)
+  queue:
+    min-players: 2
+    countdown-seconds: 30

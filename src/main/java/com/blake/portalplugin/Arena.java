@@ -26,6 +26,9 @@ public class Arena {
 
     private final Map<Material, List<Location>> resetBlocks = new HashMap<>();
 
+    // NEW: which game this arena instance is currently running (e.g. "pvp", "spleef")
+    private String assignedGame = null;
+
     public Arena(String name) {
         this.name = name.toLowerCase();
         this.inUse = false;
@@ -117,11 +120,42 @@ public class Arena {
         resetBlocks.computeIfAbsent(m, k -> new ArrayList<>()).add(loc);
     }
 
+    // NEW: assigned game getters/setters
+    public String getAssignedGame() {
+        return assignedGame;
+    }
+
+    public void setAssignedGame(String game) {
+        if (game == null || game.isBlank()) {
+            this.assignedGame = null;
+        } else {
+            this.assignedGame = game.toLowerCase();
+        }
+    }
+
+    public boolean matchesAssignedGame(String game) {
+        if (game == null) return false;
+        if (assignedGame == null) return false;
+        return assignedGame.equalsIgnoreCase(game);
+    }
+
+    public String getAssignedGameDisplayName() {
+        if (assignedGame == null || assignedGame.isBlank()) return "Game";
+
+        String g = assignedGame.trim();
+        // Short names like "pvp" look better uppercased
+        if (g.length() <= 4) return g.toUpperCase();
+
+        // Otherwise, capitalize first letter
+        return Character.toUpperCase(g.charAt(0)) + g.substring(1).toLowerCase();
+    }
+
     public void resetArenaAfterWin() {
         setStarted(false);
         setInUse(false);
         clearCountdown();
         playersInArena.clear();
+        setAssignedGame(null); // NEW: allow arena to be used by a different game later
         // We intentionally do NOT clear allPlayersEverJoined here;
         // that happens only after stats are recorded.
     }

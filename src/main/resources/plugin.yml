@@ -85,6 +85,80 @@ commands:
     usage: /gamewinloc <x> <y> <z>
     permission: portalplugin.winlocation
 
+  pos1:
+    description: Set region position 1 (target block or /pos1 x y z)
+    usage: /pos1 [x y z]
+    permission: portalplugin.worldedit
+
+  pos2:
+    description: Set region position 2 (target block or /pos2 x y z)
+    usage: /pos2 [x y z]
+    permission: portalplugin.worldedit
+
+  pfill:
+    description: Fill selected region with a block (optionally only replace a specific block)
+    usage: /pfill <block> [onlyReplaceBlock]
+    permission: portalplugin.worldedit
+
+  pclear:
+    description: Clear selected region (optionally only clear a specific block)
+    usage: /pclear [onlyReplaceBlock]
+    permission: portalplugin.worldedit
+
+  # NEW: copy/paste/rotate/flip (WorldEdit-like)
+  pcopy:
+    description: Copy selected region to your clipboard
+    usage: /pcopy
+    permission: portalplugin.worldedit
+
+  ppaste:
+    description: Paste your clipboard at your target block (or coords). Use -a to skip air.
+    usage: |
+      /ppaste
+      /ppaste -a
+      /ppaste [ -a ] <x> <y> <z>
+    permission: portalplugin.worldedit
+
+  protate:
+    description: Rotate your clipboard (90/180/270)
+    usage: /protate [90|180|270]
+    permission: portalplugin.worldedit
+
+  pflip:
+    description: Flip your clipboard on X or Z axis
+    usage: /pflip <x|z>
+    permission: portalplugin.worldedit
+
+  hubtype:
+    description: Set this server's hub type (arena or minigame)
+    usage: /hubtype <arena|minigame>
+    permission: portalplugin.hubtype
+
+  setminigame:
+    description: Set the server minigame (for hub-type=minigame)
+    usage: /setminigame <game>
+    permission: portalplugin.setminigame
+
+  blastregen:
+    description: Regenerate a BLAST map by pasting its schematic (WorldEdit/FAWE required)
+    usage: |
+      /blastregen [map]
+      /blastregen list
+      /blastregen reload
+    permission: portalplugin.blast.regen
+
+  blastmap:
+    description: Create/save/regenerate BLAST maps (region + spawns)
+    usage: |
+      /blastmap list
+      /blastmap create <name>
+      /blastmap saveregion <name>
+      /blastmap setpaste <name>
+      /blastmap setspawn <name> <red|green|yellow|blue> <1-4>
+      /blastmap regen <name>
+      /blastmap info <name>
+    permission: portalplugin.blast.maps
+
 permissions:
 
   portalplugin.stats:
@@ -125,4 +199,28 @@ permissions:
 
   portalplugin.createspawnsign:
     description: Allows creating spawn signs
+    default: op
+
+  portalplugin.worldedit:
+    description: Allows using /pos1, /pos2, /pfill, /pclear, /pcopy, /ppaste, /protate, /pflip
+    default: op
+
+  portalplugin.worldedit.bypasslimit:
+    description: Bypass worldedit.max-blocks limit for region edits
+    default: op
+
+  portalplugin.hubtype:
+    description: Allows changing hub type
+    default: op
+
+  portalplugin.setminigame:
+    description: Allows setting server-minigame
+    default: op
+
+  portalplugin.blast.regen:
+    description: Allows regenerating BLAST maps from schematics
+    default: op
+
+  portalplugin.blast.maps:
+    description: Allows managing BLAST maps (save region, set spawns, regen)
     default: op

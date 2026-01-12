@@ -3,9 +3,10 @@ package com.blake.portalplugin.listeners;
 import com.blake.portalplugin.ArenaEliminationHandler;
 import com.blake.portalplugin.GameStateManager;
 import com.blake.portalplugin.HubSpawnManager;
+import com.blake.portalplugin.PortalPlugin;
 import com.blake.portalplugin.arenas.Arena;
 import com.blake.portalplugin.arenas.ArenaManager;
-import org.bukkit.ChatColor;
+import com.blake.portalplugin.queues.GameQueueManager;
 import org.bukkit.Location;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -14,17 +15,23 @@ import org.bukkit.event.player.PlayerQuitEvent;
 
 public class PlayerJoinQuitListener implements Listener {
 
+    private final PortalPlugin plugin;
     private final GameStateManager manager;
     private final ArenaManager arenaManager;
+    private final GameQueueManager queueManager;
     private final ArenaEliminationHandler eliminationHandler;
     private final HubSpawnManager hubSpawnManager;
 
-    public PlayerJoinQuitListener(GameStateManager manager,
+    public PlayerJoinQuitListener(PortalPlugin plugin,
+                                  GameStateManager manager,
                                   ArenaManager arenaManager,
+                                  GameQueueManager queueManager,
                                   ArenaEliminationHandler eliminationHandler,
                                   HubSpawnManager hubSpawnManager) {
+        this.plugin = plugin;
         this.manager = manager;
         this.arenaManager = arenaManager;
+        this.queueManager = queueManager;
         this.eliminationHandler = eliminationHandler;
         this.hubSpawnManager = hubSpawnManager;
     }
@@ -38,11 +45,28 @@ public class PlayerJoinQuitListener implements Listener {
             e.getPlayer().teleport(hubSpawn);
         }
 
-        e.getPlayer().sendMessage(ChatColor.GRAY + "[GameState] Defaulted to HUB.");
+        // If this server is configured as a "minigame hub", auto-queue on join
+        if (plugin.getMinigameQueueManager() != null && plugin.isMinigameHub()) {
+            plugin.getMinigameQueueManager().handleJoin(e.getPlayer());
+        } else {
+            e.getPlayer().sendMessage("§7[GameState] Defaulted to HUB.");
+        }
     }
 
     @EventHandler
     public void onQuit(PlayerQuitEvent e) {
+
+        // Always remove from sign-based queues so players can't "stick" if they DC
+        try {
+            if (queueManager != null) queueManager.removePlayerFromAllQueues(e.getPlayer());
+        } catch (Exception ignored) {}
+
+        // Remove from minigame hub queue (and stop countdown if needed)
+        try {
+            if (plugin.getMinigameQueueManager() != null) {
+                plugin.getMinigameQueueManager().handleQuit(e.getPlayer());
+            }
+        } catch (Exception ignored) {}
 
         Arena arena = arenaManager.getArenaPlayerIsIn(e.getPlayer());
 
