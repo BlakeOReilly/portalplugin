@@ -607,6 +607,25 @@ public class BlastUtilityItemsListener implements Listener {
         try { pearl.remove(); } catch (Throwable ignored) {}
     }
 
+    private void breakWoolBurst(Location center, int radius) {
+        if (center == null || center.getWorld() == null) return;
+        int r = Math.max(1, radius);
+
+        for (int x = -r; x <= r; x++) {
+            for (int y = -r; y <= r; y++) {
+                for (int z = -r; z <= r; z++) {
+                    Location at = center.clone().add(x, y, z);
+                    Block block = at.getBlock();
+                    if (BlastItems.isColoredWool(block.getType())) {
+                        block.setType(Material.AIR, false);
+                    }
+                }
+            }
+        }
+
+        return base.clone().add(0, 1.0, 0);
+    }
+
     private Player findNearestEnemy(Player p, BlastMinigameManager bm, double maxDist) {
         BlastTeam my = bm.getTeam(p);
         if (my == null) return null;
