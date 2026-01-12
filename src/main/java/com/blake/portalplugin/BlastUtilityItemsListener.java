@@ -603,6 +603,37 @@ public class BlastUtilityItemsListener implements Listener {
         }
     }
 
+    @EventHandler
+    public void onEnderSoarTeleport(PlayerTeleportEvent e) {
+        if (e.getCause() != PlayerTeleportEvent.TeleportCause.ENDER_PEARL) return;
+        Player p = e.getPlayer();
+        if (p == null) return;
+
+        Long started = enderSoarActive.get(p.getUniqueId());
+        if (started == null) return;
+
+        e.setCancelled(true);
+    }
+
+    private Location findSafeLanding(Location impact, Player player) {
+        if (impact == null || impact.getWorld() == null) return player.getLocation();
+
+        Location base = impact.getBlock().getLocation().add(0.5, 0, 0.5);
+
+        for (int i = 0; i <= 3; i++) {
+            Location check = base.clone().add(0, i, 0);
+            Block feet = check.getBlock();
+            Block head = feet.getRelative(0, 1, 0);
+            Block below = feet.getRelative(0, -1, 0);
+
+            if (feet.isPassable() && head.isPassable() && !below.isPassable()) {
+                return check.clone().add(0, 0.1, 0);
+            }
+        }
+
+        return base.clone().add(0, 1.0, 0);
+    }
+
     private Player findNearestEnemy(Player p, BlastMinigameManager bm, double maxDist) {
         BlastTeam my = bm.getTeam(p);
         if (my == null) return null;
