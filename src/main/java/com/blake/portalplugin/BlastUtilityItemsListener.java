@@ -491,6 +491,7 @@ public class BlastUtilityItemsListener implements Listener {
                     bm.applyInstantElim(shooter, victim);
                 }
             }
+        }
 
             try { arrow.remove(); } catch (Throwable ignored) {}
         }
@@ -600,6 +601,8 @@ public class BlastUtilityItemsListener implements Listener {
                 }
             }
         }
+
+        return base.clone().add(0, 1.0, 0);
     }
 
     private Player findNearestEnemy(Player p, BlastMinigameManager bm, double maxDist) {
