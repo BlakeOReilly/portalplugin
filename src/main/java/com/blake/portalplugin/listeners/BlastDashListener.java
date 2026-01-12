@@ -8,9 +8,6 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.util.Vector;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
 
 public class BlastDashListener implements Listener {
 
@@ -18,11 +15,12 @@ public class BlastDashListener implements Listener {
 
     private final PortalPlugin plugin;
     private final GameStateManager gameStateManager;
-    private final Map<UUID, Long> lastDashMs = new HashMap<>();
+    private final BlastCooldownTracker cooldownTracker;
 
-    public BlastDashListener(PortalPlugin plugin, GameStateManager gameStateManager) {
+    public BlastDashListener(PortalPlugin plugin, GameStateManager gameStateManager, BlastCooldownTracker cooldownTracker) {
         this.plugin = plugin;
         this.gameStateManager = gameStateManager;
+        this.cooldownTracker = cooldownTracker;
     }
 
     @EventHandler
@@ -45,10 +43,14 @@ public class BlastDashListener implements Listener {
         if (distance <= 0) return;
 
         long now = System.currentTimeMillis();
-        long last = lastDashMs.getOrDefault(player.getUniqueId(), 0L);
-        if (now - last < DASH_COOLDOWN_MS) return;
+        if (cooldownTracker != null
+                && !cooldownTracker.isReady(player.getUniqueId(), BlastCooldownTracker.CooldownType.DASH, now)) {
+            return;
+        }
 
-        lastDashMs.put(player.getUniqueId(), now);
+        if (cooldownTracker != null) {
+            cooldownTracker.startCooldown(player.getUniqueId(), BlastCooldownTracker.CooldownType.DASH, DASH_COOLDOWN_MS, now);
+        }
 
         Vector dir = player.getLocation().getDirection().normalize();
         double speed = 0.7 + (Math.max(0, distance - 3) * 0.1);

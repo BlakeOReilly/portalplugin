@@ -37,11 +37,7 @@ public class BlastAdvancedBlasterListener implements Listener {
 
     private final PortalPlugin plugin;
     private final GameStateManager gameStateManager;
-
-    // Cooldowns
-    private final Map<UUID, Long> scatterCooldownUntilMs = new HashMap<>();
-    private final Map<UUID, Long> rangeCooldownUntilMs = new HashMap<>();
-    private final Map<UUID, Long> strikeCooldownUntilMs = new HashMap<>();
+    private final BlastCooldownTracker cooldownTracker;
 
     // Active strike charges
     private final Map<UUID, StrikeCharge> strikeCharges = new HashMap<>();
@@ -59,9 +55,10 @@ public class BlastAdvancedBlasterListener implements Listener {
     private static final String STRIKE_GUI_TITLE = "§bStrike Target";
     private final NamespacedKey strikeGuiTeamKey;
 
-    public BlastAdvancedBlasterListener(PortalPlugin plugin, GameStateManager gsm) {
+    public BlastAdvancedBlasterListener(PortalPlugin plugin, GameStateManager gsm, BlastCooldownTracker cooldownTracker) {
         this.plugin = plugin;
         this.gameStateManager = gsm;
+        this.cooldownTracker = cooldownTracker;
         this.strikeGuiTeamKey = new NamespacedKey(plugin, "strike_gui_team");
     }
 
@@ -92,23 +89,44 @@ public class BlastAdvancedBlasterListener implements Listener {
         e.setCancelled(true);
 
         if (isScatter) {
+            long now = System.currentTimeMillis();
             long cd = adjustedCooldownMs(shooter, SCATTER_COOLDOWN_MS);
-            if (!startCooldown(scatterCooldownUntilMs, shooter, cd)) return;
+            if (cooldownTracker != null
+                    && !cooldownTracker.isReady(shooter.getUniqueId(), BlastCooldownTracker.CooldownType.SCATTER, now)) {
+                return;
+            }
+            if (cooldownTracker != null) {
+                cooldownTracker.startCooldown(shooter.getUniqueId(), BlastCooldownTracker.CooldownType.SCATTER, cd, now);
+            }
             fireScatter(shooter);
             return;
         }
 
         if (isRange) {
+            if (!ensureLimitedUseAvailable(shooter, item)) return;
+
+            long now = System.currentTimeMillis();
             long cd = adjustedCooldownMs(shooter, RANGE_COOLDOWN_MS);
-            if (!startCooldown(rangeCooldownUntilMs, shooter, cd)) return;
+            if (cooldownTracker != null
+                    && !cooldownTracker.isReady(shooter.getUniqueId(), BlastCooldownTracker.CooldownType.RANGE, now)) {
+                return;
+            }
+            if (cooldownTracker != null) {
+                cooldownTracker.startCooldown(shooter.getUniqueId(), BlastCooldownTracker.CooldownType.RANGE, cd, now);
+            }
             fireRange(shooter);
+            consumeLimitedUse(shooter, item);
             return;
         }
 
         if (isStrike) {
+            if (!ensureLimitedUseAvailable(shooter, item)) return;
+
             long now = System.currentTimeMillis();
-            long until = strikeCooldownUntilMs.getOrDefault(shooter.getUniqueId(), 0L);
-            if (now < until) return;
+            if (cooldownTracker != null
+                    && !cooldownTracker.isReady(shooter.getUniqueId(), BlastCooldownTracker.CooldownType.STRIKE, now)) {
+                return;
+            }
 
             openStrikeGui(shooter);
         }
@@ -427,7 +445,10 @@ public class BlastAdvancedBlasterListener implements Listener {
         Bukkit.getScheduler().runTaskLater(plugin, () -> strikeTeamFromSky(caster, target), 2L);
 
         long cd = adjustedCooldownMs(caster, STRIKE_COOLDOWN_MS);
-        strikeCooldownUntilMs.put(caster.getUniqueId(), System.currentTimeMillis() + cd);
+        if (cooldownTracker != null) {
+            cooldownTracker.startCooldown(caster.getUniqueId(), BlastCooldownTracker.CooldownType.STRIKE, cd);
+        }
+        consumeLimitedUse(caster, null);
     }
 
     private void strikeTeamFromSky(Player caster, BlastTeam target) {
@@ -520,12 +541,66 @@ public class BlastAdvancedBlasterListener implements Listener {
         cancelStrikeInternal(p.getUniqueId(), false);
     }
 
-    private boolean startCooldown(Map<UUID, Long> map, Player p, long cooldownMs) {
-        long now = System.currentTimeMillis();
-        long until = map.getOrDefault(p.getUniqueId(), 0L);
-        if (now < until) return false;
-        map.put(p.getUniqueId(), now + cooldownMs);
-        return true;
+    private boolean ensureLimitedUseAvailable(Player shooter, ItemStack item) {
+        if (shooter == null || item == null) return false;
+        if (!BlastItems.isRangeBlaster(plugin, item) && !BlastItems.isStrikeBlaster(plugin, item)) return true;
+
+        int usesLeft = BlastItems.getLimitedUsesLeft(plugin, item);
+        if (usesLeft > 0) return true;
+
+        removeItemFromHand(shooter, item);
+        return false;
+    }
+
+    private void consumeLimitedUse(Player shooter, ItemStack item) {
+        if (shooter == null) return;
+
+        if (item != null && (BlastItems.isRangeBlaster(plugin, item) || BlastItems.isStrikeBlaster(plugin, item))) {
+            int left = BlastItems.consumeLimitedUse(plugin, item);
+            if (left <= 0) {
+                removeItemFromHand(shooter, item);
+            }
+            return;
+        }
+
+        ItemStack main = shooter.getInventory().getItemInMainHand();
+        if (BlastItems.isStrikeBlaster(plugin, main)) {
+            int left = BlastItems.consumeLimitedUse(plugin, main);
+            if (left <= 0) shooter.getInventory().setItemInMainHand(null);
+            return;
+        }
+
+        ItemStack off = shooter.getInventory().getItemInOffHand();
+        if (BlastItems.isStrikeBlaster(plugin, off)) {
+            int left = BlastItems.consumeLimitedUse(plugin, off);
+            if (left <= 0) shooter.getInventory().setItemInOffHand(null);
+            return;
+        }
+
+        ItemStack[] contents = shooter.getInventory().getStorageContents();
+        if (contents == null) return;
+
+        for (int i = 0; i < contents.length; i++) {
+            ItemStack stack = contents[i];
+            if (!BlastItems.isStrikeBlaster(plugin, stack)) continue;
+            int left = BlastItems.consumeLimitedUse(plugin, stack);
+            if (left <= 0) contents[i] = null;
+            shooter.getInventory().setStorageContents(contents);
+            return;
+        }
+    }
+
+    private void removeItemFromHand(Player shooter, ItemStack item) {
+        if (shooter == null || item == null) return;
+        ItemStack main = shooter.getInventory().getItemInMainHand();
+        if (item.isSimilar(main)) {
+            shooter.getInventory().setItemInMainHand(null);
+            return;
+        }
+        ItemStack off = shooter.getInventory().getItemInOffHand();
+        if (item.isSimilar(off)) {
+            shooter.getInventory().setItemInOffHand(null);
+        }
     }
 
     private void cancelStrikeInternal(UUID casterId, boolean applyCooldown) {
@@ -541,7 +616,9 @@ public class BlastAdvancedBlasterListener implements Listener {
             sendActionBarSafe(p, "");
             if (applyCooldown) {
                 long cd = adjustedCooldownMs(p, STRIKE_COOLDOWN_MS);
-                strikeCooldownUntilMs.put(casterId, System.currentTimeMillis() + cd);
+                if (cooldownTracker != null) {
+                    cooldownTracker.startCooldown(casterId, BlastCooldownTracker.CooldownType.STRIKE, cd);
+                }
             }
         }
     }
