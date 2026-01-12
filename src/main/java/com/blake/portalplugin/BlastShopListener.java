@@ -195,7 +195,7 @@ public class BlastShopListener implements Listener {
             case "BOOM_SLINGSHOT" -> {
                 ItemStack it = BlastShopItems.makeShopItem(plugin, Material.BOW, 1, "§aBoom Slingshot", "BOOM_SLINGSHOT", 5, null);
                 p.getInventory().addItem(it);
-                p.getInventory().addItem(new ItemStack(Material.ARROW, 8));
+                p.getInventory().addItem(new ItemStack(Material.ARROW, 1));
                 p.updateInventory();
             }
             case "ENDER_SOAR" -> {

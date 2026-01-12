@@ -477,8 +477,9 @@ public class BlastUtilityItemsListener implements Listener {
             Player shooter = (arrow.getShooter() instanceof Player) ? (Player) arrow.getShooter() : null;
             Location impact = arrow.getLocation();
 
-            impact.getWorld().spawnParticle(Particle.EXPLOSION, impact, 6, 0.8, 0.4, 0.8, 0);
-            impact.getWorld().spawnParticle(Particle.SMOKE, impact, 30, 1.0, 0.5, 1.0, 0.02);
+            impact.getWorld().spawnParticle(Particle.EXPLOSION, impact, 10, 2.5, 2.5, 2.5, 0.02);
+            impact.getWorld().spawnParticle(Particle.FLAME, impact, 120, 2.5, 1.5, 2.5, 0.02);
+            impact.getWorld().spawnParticle(Particle.SMOKE, impact, 60, 2.5, 1.5, 2.5, 0.02);
             impact.getWorld().playSound(impact, Sound.ENTITY_GENERIC_EXPLODE, 0.9f, 0.9f);
 
             if (bm != null) {
@@ -521,7 +522,7 @@ public class BlastUtilityItemsListener implements Listener {
                     PersistentDataType.INTEGER, 1);
         }
 
-        consumeItemFromHandsById(p, "BOOM_SLINGSHOT");
+        consumeItemById(p, "BOOM_SLINGSHOT");
     }
 
     @EventHandler
