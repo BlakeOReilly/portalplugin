@@ -6,7 +6,13 @@ public enum BlastPowerupType {
     SPEED("speed", "Speed powerup"),
     JUMP("jump", "Jump powerup"),
     BLAST_SPEED("blast_speed", "Blast speed powerup"),
-    BLASTER_DAMAGE("blaster_damage", "Blaster Damage Powerup");
+    BLASTER_DAMAGE("blaster_damage", "Blaster Damage Powerup"),
+    DASH("dash", "Dash powerup"),
+    KNOCKBACK("knockback", "Knockback powerup"),
+    SLOW_SHOT("slow_shot", "Slow Shot powerup"),
+    BLIND_SHOT("blind_shot", "Blind Shot powerup"),
+    MARK_TARGET("mark_target", "Mark Target powerup"),
+    CONFUSION("confusion", "Confusion powerup");
 
     private final String key;
     private final String display;
