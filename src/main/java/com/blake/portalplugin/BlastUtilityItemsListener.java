@@ -338,7 +338,7 @@ public class BlastUtilityItemsListener implements Listener {
                 Vector step = to.normalize().multiply(1.1);
                 pos.add(step);
 
-                pos.getWorld().spawnParticle(Particle.REDSTONE, pos, 6, 0.05, 0.05, 0.05, 0, dust);
+                pos.getWorld().spawnParticle(Particle.DUST, pos, 6, 0.05, 0.05, 0.05, 0, dust);
 
                 if (dist < 1.3) {
                     bm.applyInstantElim(shooter, target);
@@ -485,7 +485,7 @@ public class BlastUtilityItemsListener implements Listener {
                 shooter.teleport(safe);
             }
 
-            impact.getWorld().spawnParticle(Particle.REDSTONE, impact, 80, 2.0, 1.0, 2.0, 0,
+            impact.getWorld().spawnParticle(Particle.DUST, impact, 80, 2.0, 1.0, 2.0, 0,
                     new Particle.DustOptions(Color.AQUA, 1.6f));
             impact.getWorld().spawnParticle(Particle.EXPLOSION, impact, 6, 0.8, 0.4, 0.8, 0);
             impact.getWorld().playSound(impact, Sound.ENTITY_GENERIC_EXPLODE, 0.9f, 1.1f);
