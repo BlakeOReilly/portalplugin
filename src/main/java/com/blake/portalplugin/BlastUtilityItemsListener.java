@@ -462,7 +462,7 @@ public class BlastUtilityItemsListener implements Listener {
 
             // Small AoE elim
             bm.applyBigAoE(shooter, impact, 4.5, null);
-            breakWoolBurst(impact, 2);
+            BlastWoolUtil.breakWoolBurst(impact, 2);
 
             try { fb.remove(); } catch (Throwable ignored) {}
             return;
@@ -562,23 +562,6 @@ public class BlastUtilityItemsListener implements Listener {
         }
     }
 
-    private void breakWoolBurst(Location center, int radius) {
-        if (center == null || center.getWorld() == null) return;
-        int r = Math.max(1, radius);
-
-        for (int x = -r; x <= r; x++) {
-            for (int y = -r; y <= r; y++) {
-                for (int z = -r; z <= r; z++) {
-                    Location at = center.clone().add(x, y, z);
-                    Block block = at.getBlock();
-                    if (BlastItems.isColoredWool(block.getType())) {
-                        block.setType(Material.AIR, false);
-                    }
-                }
-            }
-        }
-    }
-
     private void handleEnderSoarImpact(EnderPearl pearl, BlastMinigameManager bm) {
         if (pearl == null) return;
         Integer mark = pearl.getPersistentDataContainer().get(new NamespacedKey(plugin, "blast_ender_soar"),
@@ -605,25 +588,6 @@ public class BlastUtilityItemsListener implements Listener {
         }
 
         try { pearl.remove(); } catch (Throwable ignored) {}
-    }
-
-    private void breakWoolBurst(Location center, int radius) {
-        if (center == null || center.getWorld() == null) return;
-        int r = Math.max(1, radius);
-
-        for (int x = -r; x <= r; x++) {
-            for (int y = -r; y <= r; y++) {
-                for (int z = -r; z <= r; z++) {
-                    Location at = center.clone().add(x, y, z);
-                    Block block = at.getBlock();
-                    if (BlastItems.isColoredWool(block.getType())) {
-                        block.setType(Material.AIR, false);
-                    }
-                }
-            }
-        }
-
-        return base.clone().add(0, 1.0, 0);
     }
 
     private Player findNearestEnemy(Player p, BlastMinigameManager bm, double maxDist) {
