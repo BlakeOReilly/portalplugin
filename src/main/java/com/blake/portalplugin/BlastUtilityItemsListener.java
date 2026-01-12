@@ -20,6 +20,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.Inventory;
@@ -285,6 +286,15 @@ public class BlastUtilityItemsListener implements Listener {
         }
     }
 
+    @EventHandler
+    public void onTargetMenuClose(InventoryCloseEvent e) {
+        if (!(e.getPlayer() instanceof Player)) return;
+        if (e.getView() == null || !HOMING_TITLE.equals(e.getView().getTitle())) return;
+
+        Player p = (Player) e.getPlayer();
+        targetModeByPlayer.remove(p.getUniqueId());
+    }
+
     private boolean consumeItemById(Player p, String id) {
         ItemStack[] contents = p.getInventory().getContents();
         for (int i = 0; i < contents.length; i++) {
@@ -481,6 +491,7 @@ public class BlastUtilityItemsListener implements Listener {
                     bm.applyInstantElim(shooter, victim);
                 }
             }
+        }
 
             try { arrow.remove(); } catch (Throwable ignored) {}
         }
@@ -500,7 +511,6 @@ public class BlastUtilityItemsListener implements Listener {
                 Location safe = BlastLandingUtil.findSafeLanding(impact, shooter);
                 shooter.teleport(safe);
             }
-        }
 
             impact.getWorld().spawnParticle(Particle.DUST, impact, 80, 2.0, 1.0, 2.0, 0,
                     new Particle.DustOptions(Color.AQUA, 1.6f));
