@@ -491,37 +491,13 @@ public class BlastUtilityItemsListener implements Listener {
                     bm.applyInstantElim(shooter, victim);
                 }
             }
-        }
 
             try { arrow.remove(); } catch (Throwable ignored) {}
         }
 
         if (proj instanceof EnderPearl) {
             EnderPearl pearl = (EnderPearl) proj;
-            Integer mark = pearl.getPersistentDataContainer().get(new NamespacedKey(plugin, "blast_ender_soar"),
-                    PersistentDataType.INTEGER);
-            if (mark == null || mark != 1) return;
-
-            Player shooter = (pearl.getShooter() instanceof Player) ? (Player) pearl.getShooter() : null;
-            Location impact = pearl.getLocation();
-
-            if (shooter != null) {
-                enderSoarActive.remove(shooter.getUniqueId());
-                pearl.removePassenger(shooter);
-                Location safe = BlastLandingUtil.findSafeLanding(impact, shooter);
-                shooter.teleport(safe);
-            }
-
-            impact.getWorld().spawnParticle(Particle.DUST, impact, 80, 2.0, 1.0, 2.0, 0,
-                    new Particle.DustOptions(Color.AQUA, 1.6f));
-            impact.getWorld().spawnParticle(Particle.EXPLOSION, impact, 6, 0.8, 0.4, 0.8, 0);
-            impact.getWorld().playSound(impact, Sound.ENTITY_GENERIC_EXPLODE, 0.9f, 1.1f);
-
-            if (bm != null && shooter != null) {
-                bm.applyBigAoE(shooter, impact, 5.0, new HashSet<>());
-            }
-
-            try { pearl.remove(); } catch (Throwable ignored) {}
+            handleEnderSoarImpact(pearl, bm);
         }
     }
 
@@ -584,6 +560,51 @@ public class BlastUtilityItemsListener implements Listener {
             }
             p.updateInventory();
         }
+    }
+
+    private void breakWoolBurst(Location center, int radius) {
+        if (center == null || center.getWorld() == null) return;
+        int r = Math.max(1, radius);
+
+        for (int x = -r; x <= r; x++) {
+            for (int y = -r; y <= r; y++) {
+                for (int z = -r; z <= r; z++) {
+                    Location at = center.clone().add(x, y, z);
+                    Block block = at.getBlock();
+                    if (BlastItems.isColoredWool(block.getType())) {
+                        block.setType(Material.AIR, false);
+                    }
+                }
+            }
+        }
+    }
+
+    private void handleEnderSoarImpact(EnderPearl pearl, BlastMinigameManager bm) {
+        if (pearl == null) return;
+        Integer mark = pearl.getPersistentDataContainer().get(new NamespacedKey(plugin, "blast_ender_soar"),
+                PersistentDataType.INTEGER);
+        if (mark == null || mark != 1) return;
+
+        Player shooter = (pearl.getShooter() instanceof Player) ? (Player) pearl.getShooter() : null;
+        Location impact = pearl.getLocation();
+
+        if (shooter != null) {
+            enderSoarActive.remove(shooter.getUniqueId());
+            pearl.removePassenger(shooter);
+            Location safe = BlastLandingUtil.findSafeLanding(impact, shooter);
+            shooter.teleport(safe);
+        }
+
+        impact.getWorld().spawnParticle(Particle.DUST, impact, 80, 2.0, 1.0, 2.0, 0,
+                new Particle.DustOptions(Color.AQUA, 1.6f));
+        impact.getWorld().spawnParticle(Particle.EXPLOSION, impact, 6, 0.8, 0.4, 0.8, 0);
+        impact.getWorld().playSound(impact, Sound.ENTITY_GENERIC_EXPLODE, 0.9f, 1.1f);
+
+        if (bm != null && shooter != null) {
+            bm.applyBigAoE(shooter, impact, 5.0, new HashSet<>());
+        }
+
+        try { pearl.remove(); } catch (Throwable ignored) {}
     }
 
     private void breakWoolBurst(Location center, int radius) {
