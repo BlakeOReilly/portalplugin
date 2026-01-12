@@ -389,6 +389,11 @@ public class PortalPlugin extends JavaPlugin {
         );
 
         Bukkit.getPluginManager().registerEvents(
+                new BlastDashListener(this, gameStateManager),
+                this
+        );
+
+        Bukkit.getPluginManager().registerEvents(
                 new BlastGeneratorListener(gameStateManager),
                 this
         );

@@ -129,6 +129,16 @@ public final class BlastPowerupManager {
         return 1 + Math.max(0, Math.min(3, s));
     }
 
+    public int getDashDistanceBlocks(Player p) {
+        int s = getStacks(p, BlastPowerupType.DASH);
+        return switch (s) {
+            case 1 -> 3;
+            case 2 -> 4;
+            case 3 -> 5;
+            default -> 0;
+        };
+    }
+
     public boolean hasAtLeastOneDiamond(Player p) {
         if (p == null) return false;
         PlayerInventory inv = p.getInventory();

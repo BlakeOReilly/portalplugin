@@ -9,11 +9,15 @@ import org.bukkit.entity.Player;
 import org.bukkit.entity.Villager;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
+import org.bukkit.util.Vector;
 
 import java.lang.reflect.Method;
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Level;
 
 public class BlastMinigameManager {
@@ -313,6 +317,7 @@ public class BlastMinigameManager {
         if (sameTeam(shooter, victim)) return; // NO FRIENDLY FIRE
 
         BlastStrikeUtil.requestCancel(plugin, victim);
+        applyBlasterPowerups(shooter, victim);
 
         BlastTeam victimTeam = teamByPlayer.get(victim.getUniqueId());
         if (victimTeam == null) return;
@@ -346,6 +351,7 @@ public class BlastMinigameManager {
         if (sameTeam(shooter, victim)) return; // NO FRIENDLY FIRE
 
         BlastStrikeUtil.requestCancel(plugin, victim);
+        applyBlasterPowerups(shooter, victim);
 
         BlastTeam victimTeam = teamByPlayer.get(victim.getUniqueId());
         if (victimTeam == null) return;
@@ -382,6 +388,7 @@ public class BlastMinigameManager {
             }
 
             BlastStrikeUtil.requestCancel(plugin, victim);
+            applyBlasterPowerups(shooter, victim);
 
             boolean removedArmor = removeNextArmorPiece(victim);
             if (removedArmor) {
@@ -397,6 +404,80 @@ public class BlastMinigameManager {
     }
 
     // =========================
+
+    private void applyBlasterPowerups(Player shooter, Player victim) {
+        if (shooter == null || victim == null) return;
+        if (!shooter.isOnline() || !victim.isOnline()) return;
+
+        BlastPowerupManager pm = getPowerupManagerSafe();
+        if (pm == null) return;
+
+        int knockbackStacks = pm.getStacks(shooter, BlastPowerupType.KNOCKBACK);
+        if (knockbackStacks > 0) {
+            double strength = 0.40 + (Math.min(3, knockbackStacks) - 1) * 0.20;
+            double vertical = 0.10 + (Math.min(3, knockbackStacks) - 1) * 0.05;
+
+            Vector dir = victim.getLocation().toVector().subtract(shooter.getLocation().toVector());
+            if (dir.lengthSquared() < 0.0001) {
+                dir = shooter.getLocation().getDirection();
+            }
+            dir = dir.normalize().multiply(strength);
+
+            Vector velocity = new Vector(dir.getX(), vertical, dir.getZ());
+            victim.setVelocity(velocity);
+        }
+
+        int slowStacks = pm.getStacks(shooter, BlastPowerupType.SLOW_SHOT);
+        if (slowStacks > 0) {
+            int duration;
+            int amplifier;
+            switch (Math.min(3, slowStacks)) {
+                case 1 -> {
+                    duration = 10;
+                    amplifier = 0;
+                }
+                case 2 -> {
+                    duration = 20;
+                    amplifier = 1;
+                }
+                default -> {
+                    duration = 20;
+                    amplifier = 3;
+                }
+            }
+            victim.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, duration, amplifier, false, false, true));
+        }
+
+        int markStacks = pm.getStacks(shooter, BlastPowerupType.MARK_TARGET);
+        if (markStacks > 0) {
+            int duration = switch (Math.min(3, markStacks)) {
+                case 1 -> 60;
+                case 2 -> 100;
+                default -> 160;
+            };
+            victim.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, duration, 0, false, false, true));
+        }
+
+        int blindStacks = pm.getStacks(shooter, BlastPowerupType.BLIND_SHOT);
+        if (blindStacks > 0 && ThreadLocalRandom.current().nextDouble() < 0.35) {
+            int duration = switch (Math.min(3, blindStacks)) {
+                case 1 -> 20;
+                case 2 -> 40;
+                default -> 60;
+            };
+            victim.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, duration, 0, false, false, true));
+        }
+
+        int confusionStacks = pm.getStacks(shooter, BlastPowerupType.CONFUSION);
+        if (confusionStacks > 0 && ThreadLocalRandom.current().nextDouble() < 0.35) {
+            int duration = switch (Math.min(3, confusionStacks)) {
+                case 1 -> 10;
+                case 2 -> 20;
+                default -> 30;
+            };
+            victim.addPotionEffect(new PotionEffect(PotionEffectType.NAUSEA, duration, 0, false, false, true));
+        }
+    }
 
     private void applyFreshBlastLoadout(Player p) {
         if (p == null) return;

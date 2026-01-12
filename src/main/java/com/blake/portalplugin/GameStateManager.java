@@ -53,14 +53,20 @@ public class GameStateManager implements Listener {
     private static final int UI_MAX_STACKS = 3;
 
     // Powerup items go in these "base" slots; indicator is base+1 (to the right).
-    // These are MAIN inventory slots (9..35). Default places them on row 2: 9/10, 11/12, 13/14, 15/16.
-    private static final List<Integer> DEFAULT_UI_BASE_SLOTS = List.of(9, 11, 13, 15);
+    // These are MAIN inventory slots (9..35).
+    private static final List<Integer> DEFAULT_UI_BASE_SLOTS = List.of(9, 11, 13, 15, 17, 19, 21, 23, 25, 27);
 
     private static final List<BlastPowerupType> UI_POWERUPS = List.of(
             BlastPowerupType.SPEED,
             BlastPowerupType.JUMP,
             BlastPowerupType.BLAST_SPEED,
-            BlastPowerupType.BLASTER_DAMAGE
+            BlastPowerupType.BLASTER_DAMAGE,
+            BlastPowerupType.DASH,
+            BlastPowerupType.KNOCKBACK,
+            BlastPowerupType.SLOW_SHOT,
+            BlastPowerupType.BLIND_SHOT,
+            BlastPowerupType.MARK_TARGET,
+            BlastPowerupType.CONFUSION
     );
 
     public GameStateManager(Plugin plugin) {
@@ -788,6 +794,12 @@ public class GameStateManager implements Listener {
             case JUMP -> Material.RABBIT_FOOT;
             case BLAST_SPEED -> Material.CLOCK;
             case BLASTER_DAMAGE -> Material.ANVIL;
+            case DASH -> Material.FEATHER;
+            case KNOCKBACK -> Material.IRON_SWORD;
+            case SLOW_SHOT -> Material.ICE;
+            case BLIND_SHOT -> Material.INK_SAC;
+            case MARK_TARGET -> Material.SPYGLASS;
+            case CONFUSION -> Material.FERMENTED_SPIDER_EYE;
             default -> Material.NETHER_STAR;
         };
 
@@ -801,6 +813,12 @@ public class GameStateManager implements Listener {
                 case JUMP -> "Jump";
                 case BLAST_SPEED -> "Blast Speed";
                 case BLASTER_DAMAGE -> "Blaster Damage";
+                case DASH -> "Dash";
+                case KNOCKBACK -> "Knockback";
+                case SLOW_SHOT -> "Slow Shot";
+                case BLIND_SHOT -> "Blind Shot";
+                case MARK_TARGET -> "Mark Target";
+                case CONFUSION -> "Confusion";
                 default -> type.name();
             };
 
@@ -826,6 +844,12 @@ public class GameStateManager implements Listener {
             case JUMP -> Material.LIME_DYE;
             case BLAST_SPEED -> Material.YELLOW_DYE;
             case BLASTER_DAMAGE -> Material.RED_DYE;
+            case DASH -> Material.WHITE_DYE;
+            case KNOCKBACK -> Material.GRAY_DYE;
+            case SLOW_SHOT -> Material.CYAN_DYE;
+            case BLIND_SHOT -> Material.BLACK_DYE;
+            case MARK_TARGET -> Material.ORANGE_DYE;
+            case CONFUSION -> Material.PURPLE_DYE;
             default -> Material.WHITE_DYE;
         };
 
