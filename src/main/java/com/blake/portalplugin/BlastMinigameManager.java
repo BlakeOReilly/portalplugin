@@ -445,7 +445,7 @@ public class BlastMinigameManager {
                     amplifier = 3;
                 }
             }
-            victim.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, duration, amplifier, false, false, true));
+            victim.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, duration, amplifier, false, false, true));
         }
 
         int markStacks = pm.getStacks(shooter, BlastPowerupType.MARK_TARGET);
