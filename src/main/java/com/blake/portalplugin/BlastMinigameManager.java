@@ -414,8 +414,8 @@ public class BlastMinigameManager {
 
         int knockbackStacks = pm.getStacks(shooter, BlastPowerupType.KNOCKBACK);
         if (knockbackStacks > 0) {
-            double strength = 0.40 + (Math.min(3, knockbackStacks) - 1) * 0.20;
-            double vertical = 0.10 + (Math.min(3, knockbackStacks) - 1) * 0.05;
+            double strength = (0.40 + (Math.min(3, knockbackStacks) - 1) * 0.20) * 2.0;
+            double vertical = (0.10 + (Math.min(3, knockbackStacks) - 1) * 0.05) * 2.0;
 
             Vector dir = victim.getLocation().toVector().subtract(shooter.getLocation().toVector());
             if (dir.lengthSquared() < 0.0001) {
@@ -445,7 +445,7 @@ public class BlastMinigameManager {
                     amplifier = 3;
                 }
             }
-            victim.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, duration, amplifier, false, false, true));
+            victim.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, duration, amplifier, false, false, true));
         }
 
         int markStacks = pm.getStacks(shooter, BlastPowerupType.MARK_TARGET);
@@ -466,16 +466,6 @@ public class BlastMinigameManager {
                 default -> 60;
             };
             victim.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, duration, 0, false, false, true));
-        }
-
-        int confusionStacks = pm.getStacks(shooter, BlastPowerupType.CONFUSION);
-        if (confusionStacks > 0 && ThreadLocalRandom.current().nextDouble() < 0.35) {
-            int duration = switch (Math.min(3, confusionStacks)) {
-                case 1 -> 10;
-                case 2 -> 20;
-                default -> 30;
-            };
-            victim.addPotionEffect(new PotionEffect(PotionEffectType.NAUSEA, duration, 0, false, false, true));
         }
     }
 
