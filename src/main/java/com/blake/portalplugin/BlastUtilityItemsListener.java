@@ -483,7 +483,7 @@ public class BlastUtilityItemsListener implements Listener {
             impact.getWorld().playSound(impact, Sound.ENTITY_GENERIC_EXPLODE, 0.9f, 0.9f);
 
             if (bm != null) {
-                double radius = 10.0;
+                double radius = 20.0;
                 for (Player victim : impact.getWorld().getPlayers()) {
                     if (victim == null || !victim.isOnline()) continue;
                     if (gsm.getGameState(victim) != GameState.BLAST) continue;

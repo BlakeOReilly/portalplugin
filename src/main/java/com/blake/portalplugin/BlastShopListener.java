@@ -89,9 +89,17 @@ public class BlastShopListener implements Listener {
         inv.setItem(19, BlastShopItems.makeShopItem(plugin, Material.APPLE, 1, "§a+1 Team Life", "TEAM_LIFE", 5,
                 List.of("§7Right-click to use")));
 
+        // Ender Soar (ender pearl) 3 tokens
+        inv.setItem(20, BlastShopItems.makeShopItem(plugin, Material.ENDER_PEARL, 1, "§bEnder Soar", "ENDER_SOAR", 3,
+                List.of("§7Ride the pearl", "§7Cyan blast on landing")));
+
         // Tracker compass (3 tokens)
         inv.setItem(21, BlastShopItems.makeShopItem(plugin, Material.COMPASS, 1, "§eTracker Compass", "TRACKER", 3,
                 List.of("§7Right-click to track")));
+
+        // Tunneler (shears) 2 tokens
+        inv.setItem(22, BlastShopItems.makeShopItem(plugin, Material.SHEARS, 1, "§fTunneler", "TUNNELER", 2,
+                List.of("§7Creates a 1x2 wool tunnel")));
 
         // Homing missile (piston) 10 tokens
         inv.setItem(23, BlastShopItems.makeShopItem(plugin, Material.PISTON, 1, "§dHoming Missile", "HOMING", 10,
@@ -100,14 +108,6 @@ public class BlastShopListener implements Listener {
         // Boom Slingshot (bow) 5 tokens
         inv.setItem(24, BlastShopItems.makeShopItem(plugin, Material.BOW, 1, "§aBoom Slingshot", "BOOM_SLINGSHOT", 5,
                 List.of("§7Explodes on impact")));
-
-        // Ender Soar (ender pearl) 3 tokens
-        inv.setItem(25, BlastShopItems.makeShopItem(plugin, Material.ENDER_PEARL, 1, "§bEnder Soar", "ENDER_SOAR", 3,
-                List.of("§7Ride the pearl", "§7Cyan blast on landing")));
-
-        // Tunneler (shears) 2 tokens
-        inv.setItem(26, BlastShopItems.makeShopItem(plugin, Material.SHEARS, 1, "§fTunneler", "TUNNELER", 2,
-                List.of("§7Creates a 1x2 wool tunnel")));
 
         p.openInventory(inv);
     }
