@@ -2,7 +2,6 @@ package com.blake.portalplugin;
 
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
-import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
@@ -31,15 +30,13 @@ public final class BlastPowerupMenu {
             BlastPowerupType.KNOCKBACK,
             BlastPowerupType.SLOW_SHOT,
             BlastPowerupType.BLIND_SHOT,
-            BlastPowerupType.MARK_TARGET,
-            BlastPowerupType.CONFUSION
+            BlastPowerupType.MARK_TARGET
     );
 
     private static final Set<Integer> RESERVED = buildReserved();
 
     private static final String PDC_KEY = "blast_powerup_menu_item"; // string marker
     private static final String PDC_BTN_PREFIX = "btn:";
-    private static final String PDC_IND_PREFIX = "ind:";
 
     private BlastPowerupMenu() {}
 
@@ -95,10 +92,10 @@ public final class BlastPowerupMenu {
             int baseSlot = BASE_SLOTS.get(i);
             int indSlot = baseSlot + 1;
 
-            setReserved(plugin, p, baseSlot, createButton(plugin, resolveButtonMaterial(type), type));
-
             int stacks = (powerups != null) ? powerups.getStacks(p, type) : 0;
-            setReserved(plugin, p, indSlot, createIndicator(plugin, type, stacks));
+            setReserved(plugin, p, baseSlot, createButton(plugin, resolveButtonMaterial(type), type, stacks));
+
+            setReserved(plugin, p, indSlot, null);
         }
 
         try { p.updateInventory(); } catch (Throwable ignored) {}
@@ -124,40 +121,18 @@ public final class BlastPowerupMenu {
         inv.setItem(slot, desired);
     }
 
-    private static ItemStack createButton(Plugin plugin, Material mat, BlastPowerupType type) {
+    private static ItemStack createButton(Plugin plugin, Material mat, BlastPowerupType type, int stacks) {
         ItemStack it = new ItemStack(mat, 1);
         ItemMeta meta = it.getItemMeta();
         if (meta != null) {
             meta.setDisplayName(type.getDisplay());
+            meta.setLore(buildLore(type, stacks));
             meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
 
             meta.getPersistentDataContainer().set(
                     new NamespacedKey(plugin, PDC_KEY),
                     PersistentDataType.STRING,
                     PDC_BTN_PREFIX + type.getKey()
-            );
-
-            it.setItemMeta(meta);
-        }
-        return it;
-    }
-
-    private static ItemStack createIndicator(Plugin plugin, BlastPowerupType type, int stacks) {
-        int clamped = Math.max(0, Math.min(UI_MAX_STACKS, stacks));
-        if (clamped <= 0) return null;
-
-        ItemStack it = new ItemStack(Material.BLUE_DYE, clamped);
-
-        ItemMeta meta = it.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName("§7Purchased: §b" + clamped + "/" + UI_MAX_STACKS);
-            meta.addEnchant(Enchantment.UNBREAKING, 1, true);
-            meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
-
-            meta.getPersistentDataContainer().set(
-                    new NamespacedKey(plugin, PDC_KEY),
-                    PersistentDataType.STRING,
-                    PDC_IND_PREFIX + type.getKey()
             );
 
             it.setItemMeta(meta);
@@ -175,9 +150,90 @@ public final class BlastPowerupMenu {
             case KNOCKBACK -> Material.IRON_SWORD;
             case SLOW_SHOT -> Material.ICE;
             case BLIND_SHOT -> Material.INK_SAC;
-            case MARK_TARGET -> Material.SPYGLASS;
-            case CONFUSION -> Material.FERMENTED_SPIDER_EYE;
+            case MARK_TARGET -> Material.COMPASS;
             default -> Material.NETHER_STAR;
+        };
+    }
+
+    private static List<String> buildLore(BlastPowerupType type, int stacks) {
+        int clamped = Math.max(0, Math.min(UI_MAX_STACKS, stacks));
+        String stackLine = "§7Stacks: §b" + clamped + "/" + UI_MAX_STACKS;
+        return switch (type) {
+            case SPEED -> List.of(
+                    "§7Gain Speed I/II/III based on stacks.",
+                    "§7Chance: §b100% (always active).",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            case JUMP -> List.of(
+                    "§7Gain Jump Boost II/III/IV.",
+                    "§7Chance: §b100% (always active).",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            case BLAST_SPEED -> List.of(
+                    "§7Reduce blaster cooldown by 0.2s per stack.",
+                    "§7Chance: §b100% (always active).",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            case BLASTER_DAMAGE -> List.of(
+                    "§7Remove extra armor pieces per hit.",
+                    "§7+1/+2/+3 pieces at stacks 1/2/3.",
+                    "§7Chance: §b100% on hit.",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            case DASH -> List.of(
+                    "§7Left-click with blaster to dash.",
+                    "§7Distance: §b6/8/10 §7blocks.",
+                    "§7Chance: §b100% (5s cooldown).",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            case KNOCKBACK -> List.of(
+                    "§7Stronger knockback on hit.",
+                    "§7Strength: §b0.8/1.2/1.6§7.",
+                    "§7Chance: §b100% on hit.",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            case SLOW_SHOT -> List.of(
+                    "§7Slow targets hit by your blaster.",
+                    "§7Duration: §b0.5/1/1s§7 (higher slow).",
+                    "§7Chance: §b100% on hit.",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            case BLIND_SHOT -> List.of(
+                    "§7Chance to blind targets on hit.",
+                    "§7Duration: §b1/2/3s§7.",
+                    "§7Chance: §b35% on hit.",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            case MARK_TARGET -> List.of(
+                    "§7Outline targets on hit (glowing).",
+                    "§7Duration: §b3/5/8s§7.",
+                    "§7Chance: §b100% on hit.",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            default -> List.of(
+                    "§7Powerup details unavailable.",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
         };
     }
 

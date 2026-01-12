@@ -65,8 +65,7 @@ public class GameStateManager implements Listener {
             BlastPowerupType.KNOCKBACK,
             BlastPowerupType.SLOW_SHOT,
             BlastPowerupType.BLIND_SHOT,
-            BlastPowerupType.MARK_TARGET,
-            BlastPowerupType.CONFUSION
+            BlastPowerupType.MARK_TARGET
     );
 
     public GameStateManager(Plugin plugin) {
@@ -798,8 +797,7 @@ public class GameStateManager implements Listener {
             case KNOCKBACK -> Material.IRON_SWORD;
             case SLOW_SHOT -> Material.ICE;
             case BLIND_SHOT -> Material.INK_SAC;
-            case MARK_TARGET -> Material.SPYGLASS;
-            case CONFUSION -> Material.FERMENTED_SPIDER_EYE;
+            case MARK_TARGET -> Material.COMPASS;
             default -> Material.NETHER_STAR;
         };
 
@@ -823,10 +821,7 @@ public class GameStateManager implements Listener {
             };
 
             meta.setDisplayName("§b" + nice + " §7(" + clamped + "/" + UI_MAX_STACKS + ")");
-            meta.setLore(List.of(
-                    "§7Cost: §b1 §7Diamond",
-                    "§7Click to purchase"
-            ));
+            meta.setLore(buildPowerupLore(type, clamped));
             meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_ENCHANTS);
 
             meta.getPersistentDataContainer().set(blastPowerupUiKey, PersistentDataType.STRING, type.name());
@@ -836,32 +831,88 @@ public class GameStateManager implements Listener {
     }
 
     private ItemStack createIndicatorItem(BlastPowerupType type, int stacks) {
-        int clamped = Math.max(0, Math.min(UI_MAX_STACKS, stacks));
-        if (clamped <= 0) return null;
+        return null;
+    }
 
-        Material dye = switch (type) {
-            case SPEED -> Material.LIGHT_BLUE_DYE;
-            case JUMP -> Material.LIME_DYE;
-            case BLAST_SPEED -> Material.YELLOW_DYE;
-            case BLASTER_DAMAGE -> Material.RED_DYE;
-            case DASH -> Material.WHITE_DYE;
-            case KNOCKBACK -> Material.GRAY_DYE;
-            case SLOW_SHOT -> Material.CYAN_DYE;
-            case BLIND_SHOT -> Material.BLACK_DYE;
-            case MARK_TARGET -> Material.ORANGE_DYE;
-            case CONFUSION -> Material.PURPLE_DYE;
-            default -> Material.WHITE_DYE;
+    private List<String> buildPowerupLore(BlastPowerupType type, int stacks) {
+        String stackLine = "§7Stacks: §b" + stacks + "/" + UI_MAX_STACKS;
+        return switch (type) {
+            case SPEED -> List.of(
+                    "§7Gain Speed I/II/III based on stacks.",
+                    "§7Chance: §b100% (always active).",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            case JUMP -> List.of(
+                    "§7Gain Jump Boost II/III/IV.",
+                    "§7Chance: §b100% (always active).",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            case BLAST_SPEED -> List.of(
+                    "§7Reduce blaster cooldown by 0.2s per stack.",
+                    "§7Chance: §b100% (always active).",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            case BLASTER_DAMAGE -> List.of(
+                    "§7Remove extra armor pieces per hit.",
+                    "§7+1/+2/+3 pieces at stacks 1/2/3.",
+                    "§7Chance: §b100% on hit.",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            case DASH -> List.of(
+                    "§7Left-click with blaster to dash.",
+                    "§7Distance: §b6/8/10 §7blocks.",
+                    "§7Chance: §b100% (5s cooldown).",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            case KNOCKBACK -> List.of(
+                    "§7Stronger knockback on hit.",
+                    "§7Strength: §b0.8/1.2/1.6§7.",
+                    "§7Chance: §b100% on hit.",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            case SLOW_SHOT -> List.of(
+                    "§7Slow targets hit by your blaster.",
+                    "§7Duration: §b0.5/1/1s§7 (higher slow).",
+                    "§7Chance: §b100% on hit.",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            case BLIND_SHOT -> List.of(
+                    "§7Chance to blind targets on hit.",
+                    "§7Duration: §b1/2/3s§7.",
+                    "§7Chance: §b35% on hit.",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            case MARK_TARGET -> List.of(
+                    "§7Outline targets on hit (glowing).",
+                    "§7Duration: §b3/5/8s§7.",
+                    "§7Chance: §b100% on hit.",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
+            default -> List.of(
+                    "§7Powerup details unavailable.",
+                    stackLine,
+                    "§7Cost: §b1 §7Diamond",
+                    "§7Click to purchase"
+            );
         };
-
-        ItemStack it = new ItemStack(dye, clamped);
-        ItemMeta meta = it.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName("§7Purchased: §b" + clamped + "/" + UI_MAX_STACKS);
-            meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_ENCHANTS);
-            meta.getPersistentDataContainer().set(blastPowerupUiIndicatorKey, PersistentDataType.STRING, type.name());
-            it.setItemMeta(meta);
-        }
-        return it;
     }
 
     private void attemptPurchase(Player p, BlastPowerupType type) {

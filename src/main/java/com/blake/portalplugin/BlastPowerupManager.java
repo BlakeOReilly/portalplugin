@@ -132,9 +132,9 @@ public final class BlastPowerupManager {
     public int getDashDistanceBlocks(Player p) {
         int s = getStacks(p, BlastPowerupType.DASH);
         return switch (s) {
-            case 1 -> 3;
-            case 2 -> 4;
-            case 3 -> 5;
+            case 1 -> 6;
+            case 2 -> 8;
+            case 3 -> 10;
             default -> 0;
         };
     }
