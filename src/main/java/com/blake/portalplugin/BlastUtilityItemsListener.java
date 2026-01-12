@@ -218,7 +218,8 @@ public class BlastUtilityItemsListener implements Listener {
 
             ItemStack head = new ItemStack(Material.PLAYER_HEAD, 1);
             ItemMeta meta = head.getItemMeta();
-            if (meta instanceof SkullMeta skullMeta) {
+            if (meta instanceof SkullMeta) {
+                SkullMeta skullMeta = (SkullMeta) meta;
                 skullMeta.setOwningPlayer(target);
                 skullMeta.setDisplayName("§cTarget: §f" + target.getName());
                 skullMeta.getPersistentDataContainer().set(new NamespacedKey(plugin, "blast_homing_target"),
@@ -236,7 +237,8 @@ public class BlastUtilityItemsListener implements Listener {
 
     @EventHandler
     public void onHomingMenuClick(InventoryClickEvent e) {
-        if (!(e.getWhoClicked() instanceof Player p)) return;
+        if (!(e.getWhoClicked() instanceof Player)) return;
+        Player p = (Player) e.getWhoClicked();
         if (e.getView() == null || !HOMING_TITLE.equals(e.getView().getTitle())) return;
 
         e.setCancelled(true);
@@ -431,7 +433,8 @@ public class BlastUtilityItemsListener implements Listener {
         if (bm == null || !bm.isInProgress()) return;
 
         // Fireball impact
-        if (proj instanceof Fireball fb) {
+        if (proj instanceof Fireball) {
+            Fireball fb = (Fireball) proj;
             Integer mark = null;
             try {
                 mark = fb.getPersistentDataContainer().get(new org.bukkit.NamespacedKey(plugin, "blast_fireball"), org.bukkit.persistence.PersistentDataType.INTEGER);
@@ -439,7 +442,7 @@ public class BlastUtilityItemsListener implements Listener {
 
             if (mark == null || mark != 1) return;
 
-            Player shooter = (fb.getShooter() instanceof Player p) ? p : null;
+            Player shooter = (fb.getShooter() instanceof Player) ? (Player) fb.getShooter() : null;
 
             Location impact = fb.getLocation();
             impact.getWorld().spawnParticle(Particle.EXPLOSION, impact, 2, 0.2, 0.2, 0.2, 0);
@@ -454,12 +457,13 @@ public class BlastUtilityItemsListener implements Listener {
             return;
         }
 
-        if (proj instanceof Arrow arrow) {
+        if (proj instanceof Arrow) {
+            Arrow arrow = (Arrow) proj;
             Integer mark = arrow.getPersistentDataContainer().get(new NamespacedKey(plugin, "blast_boom_slingshot"),
                     PersistentDataType.INTEGER);
             if (mark == null || mark != 1) return;
 
-            Player shooter = (arrow.getShooter() instanceof Player p) ? p : null;
+            Player shooter = (arrow.getShooter() instanceof Player) ? (Player) arrow.getShooter() : null;
             Location impact = arrow.getLocation();
 
             impact.getWorld().spawnParticle(Particle.EXPLOSION, impact, 6, 0.8, 0.4, 0.8, 0);
@@ -480,12 +484,13 @@ public class BlastUtilityItemsListener implements Listener {
             try { arrow.remove(); } catch (Throwable ignored) {}
         }
 
-        if (proj instanceof EnderPearl pearl) {
+        if (proj instanceof EnderPearl) {
+            EnderPearl pearl = (EnderPearl) proj;
             Integer mark = pearl.getPersistentDataContainer().get(new NamespacedKey(plugin, "blast_ender_soar"),
                     PersistentDataType.INTEGER);
             if (mark == null || mark != 1) return;
 
-            Player shooter = (pearl.getShooter() instanceof Player p) ? p : null;
+            Player shooter = (pearl.getShooter() instanceof Player) ? (Player) pearl.getShooter() : null;
             Location impact = pearl.getLocation();
 
             if (shooter != null) {
@@ -494,9 +499,7 @@ public class BlastUtilityItemsListener implements Listener {
                 Location safe = BlastLandingUtil.findSafeLanding(impact, shooter);
                 shooter.teleport(safe);
             }
-            p.updateInventory();
         }
-    }
 
             impact.getWorld().spawnParticle(Particle.DUST, impact, 80, 2.0, 1.0, 2.0, 0,
                     new Particle.DustOptions(Color.AQUA, 1.6f));
@@ -513,7 +516,8 @@ public class BlastUtilityItemsListener implements Listener {
 
     @EventHandler
     public void onBowShoot(EntityShootBowEvent e) {
-        if (!(e.getEntity() instanceof Player p)) return;
+        if (!(e.getEntity() instanceof Player)) return;
+        Player p = (Player) e.getEntity();
 
         BlastMinigameManager bm = plugin.getBlastMinigameManager();
         if (bm == null || !bm.isInProgress()) return;
@@ -524,7 +528,8 @@ public class BlastUtilityItemsListener implements Listener {
         String id = BlastShopItems.getShopId(plugin, bow);
         if (id == null || !id.equalsIgnoreCase("BOOM_SLINGSHOT")) return;
 
-        if (e.getProjectile() instanceof Arrow arrow) {
+        if (e.getProjectile() instanceof Arrow) {
+            Arrow arrow = (Arrow) e.getProjectile();
             arrow.getPersistentDataContainer().set(new NamespacedKey(plugin, "blast_boom_slingshot"),
                     PersistentDataType.INTEGER, 1);
         }
