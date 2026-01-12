@@ -494,6 +494,9 @@ public class BlastUtilityItemsListener implements Listener {
                 Location safe = BlastLandingUtil.findSafeLanding(impact, shooter);
                 shooter.teleport(safe);
             }
+            p.updateInventory();
+        }
+    }
 
             impact.getWorld().spawnParticle(Particle.DUST, impact, 80, 2.0, 1.0, 2.0, 0,
                     new Particle.DustOptions(Color.AQUA, 1.6f));
@@ -582,6 +585,8 @@ public class BlastUtilityItemsListener implements Listener {
                 }
             }
         }
+
+        return base.clone().add(0, 1.0, 0);
     }
 
     private Player findNearestEnemy(Player p, BlastMinigameManager bm, double maxDist) {
