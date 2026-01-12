@@ -2,29 +2,48 @@ package com.blake.portalplugin.listeners;
 
 import com.blake.portalplugin.*;
 import org.bukkit.Bukkit;
+import org.bukkit.Color;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Fireball;
+import org.bukkit.entity.EnderPearl;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
-import org.bukkit.entity.Snowball;
+import org.bukkit.entity.Arrow;
+import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.ProjectileHitEvent;
+import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.SkullMeta;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public class BlastUtilityItemsListener implements Listener {
 
+    private static final String HOMING_TITLE = "§c§lHoming Missile";
+
     private final PortalPlugin plugin;
     private final GameStateManager gsm;
+    private final Map<UUID, Long> enderSoarActive = new HashMap<>();
 
     public BlastUtilityItemsListener(PortalPlugin plugin, GameStateManager gsm) {
         this.plugin = plugin;
@@ -72,8 +91,18 @@ public class BlastUtilityItemsListener implements Listener {
             }
             case "HOMING" -> {
                 e.setCancelled(true);
+                openHomingTargetMenu(p, bm);
+            }
+            case "ENDER_SOAR" -> {
+                e.setCancelled(true);
                 if (consumeOneFromHand(p)) {
-                    fireHomingMissile(p, bm);
+                    launchEnderSoar(p);
+                }
+            }
+            case "TUNNELER" -> {
+                e.setCancelled(true);
+                if (consumeOneFromHand(p)) {
+                    digWoolTunnel(p);
                 }
             }
             case "FIREBALL" -> {
@@ -113,19 +142,22 @@ public class BlastUtilityItemsListener implements Listener {
         // Determine perpendicular axis for width
         Vector right = new Vector(-dir.getZ(), 0, dir.getX()).normalize();
 
-        int width = 3; // 3 wide
-        int height = 2; // 2 high
+        int height = 3; // 3 high
+        int length = 10; // 10 long
 
         int placed = 0;
 
-        for (int w = -(width / 2); w <= (width / 2); w++) {
-            for (int h = 0; h < height; h++) {
-                Location at = front.clone().add(right.clone().multiply(w)).add(0, h, 0);
-                var block = at.getBlock();
+        for (int l = 1; l <= length; l++) {
+            Location along = front.clone().add(dir.clone().multiply(l - 1));
+            for (int w = -1; w <= 0; w++) {
+                for (int h = 0; h < height; h++) {
+                    Location at = along.clone().add(right.clone().multiply(w)).add(0, h, 0);
+                    var block = at.getBlock();
 
-                if (block.getType().isAir()) {
-                    block.setType(wool, false);
-                    placed++;
+                    if (block.getType().isAir()) {
+                        block.setType(wool, false);
+                        placed++;
+                    }
                 }
             }
         }
@@ -151,60 +183,220 @@ public class BlastUtilityItemsListener implements Listener {
         p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.7f, 1.6f);
     }
 
-    private void fireHomingMissile(Player shooter, BlastMinigameManager bm) {
-        Player target = findNearestEnemy(shooter, bm, 200.0);
-        if (target == null) {
-            shooter.sendMessage("§c[BLAST] No enemy found for homing missile.");
-            shooter.playSound(shooter.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.7f, 0.6f);
+    private void openHomingTargetMenu(Player p, BlastMinigameManager bm) {
+        List<Player> targets = new ArrayList<>();
+        for (Player other : Bukkit.getOnlinePlayers()) {
+            if (other == null || !other.isOnline()) continue;
+            if (other.getUniqueId().equals(p.getUniqueId())) continue;
+            if (gsm.getGameState(other) != GameState.BLAST) continue;
+            if (!bm.isParticipant(other)) continue;
+
+            BlastTeam my = bm.getTeam(p);
+            BlastTeam ot = bm.getTeam(other);
+            if (my != null && ot != null && my == ot) continue;
+
+            targets.add(other);
+        }
+
+        if (targets.isEmpty()) {
+            p.sendMessage("§c[BLAST] No enemy players to target.");
+            p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.7f, 0.6f);
             return;
         }
 
-        Snowball sb = shooter.launchProjectile(Snowball.class);
-        sb.setShooter(shooter);
+        var inv = Bukkit.createInventory(null, 54, HOMING_TITLE);
 
-        // Mark it
-        try {
-            sb.getPersistentDataContainer().set(new org.bukkit.NamespacedKey(plugin, "blast_homing"), org.bukkit.persistence.PersistentDataType.STRING, target.getUniqueId().toString());
-        } catch (Throwable ignored) {}
+        int index = 0;
+        for (Player target : targets) {
+            int column = index % 9;
+            int rowGroup = (index / 9) * 2;
+            if (rowGroup + 1 >= 6) break;
+
+            BlastTeam team = bm.getTeam(target);
+            Material wool = (team != null) ? BlastItems.getTeamWool(team) : Material.WHITE_WOOL;
+
+            ItemStack woolItem = new ItemStack(wool, 1);
+            ItemMeta woolMeta = woolItem.getItemMeta();
+            if (woolMeta != null) {
+                woolMeta.setDisplayName("§7Team: " + (team != null ? team.getColor() + team.getKey().toUpperCase() : "§fUNKNOWN"));
+                woolItem.setItemMeta(woolMeta);
+            }
+
+            ItemStack head = new ItemStack(Material.PLAYER_HEAD, 1);
+            ItemMeta meta = head.getItemMeta();
+            if (meta instanceof SkullMeta skullMeta) {
+                skullMeta.setOwningPlayer(target);
+                skullMeta.setDisplayName("§cTarget: §f" + target.getName());
+                skullMeta.getPersistentDataContainer().set(new NamespacedKey(plugin, "blast_homing_target"),
+                        PersistentDataType.STRING, target.getUniqueId().toString());
+                head.setItemMeta(skullMeta);
+            }
+
+            inv.setItem(rowGroup * 9 + column, woolItem);
+            inv.setItem((rowGroup + 1) * 9 + column, head);
+            index++;
+        }
+
+        p.openInventory(inv);
+    }
+
+    @EventHandler
+    public void onHomingMenuClick(InventoryClickEvent e) {
+        if (!(e.getWhoClicked() instanceof Player p)) return;
+        if (e.getView() == null || !HOMING_TITLE.equals(e.getView().getTitle())) return;
+
+        e.setCancelled(true);
+
+        ItemStack clicked = e.getCurrentItem();
+        if (clicked == null || clicked.getType().isAir()) return;
+
+        ItemMeta meta = clicked.getItemMeta();
+        if (meta == null) return;
+
+        PersistentDataContainer pdc = meta.getPersistentDataContainer();
+        String targetId = pdc.get(new NamespacedKey(plugin, "blast_homing_target"), PersistentDataType.STRING);
+        if (targetId == null) return;
+
+        BlastMinigameManager bm = plugin.getBlastMinigameManager();
+        if (bm == null || !bm.isInProgress()) return;
+        if (gsm.getGameState(p) != GameState.BLAST || !bm.isParticipant(p)) return;
+
+        Player target = Bukkit.getPlayer(UUID.fromString(targetId));
+        if (target == null || !target.isOnline()) {
+            p.sendMessage("§c[BLAST] That target is no longer available.");
+            p.closeInventory();
+            return;
+        }
+
+        if (!consumeItemById(p, "HOMING")) {
+            p.sendMessage("§c[BLAST] You no longer have a homing missile.");
+            p.closeInventory();
+            return;
+        }
+
+        p.closeInventory();
+        launchHomingParticle(p, target, bm);
+    }
+
+    private boolean consumeItemById(Player p, String id) {
+        ItemStack[] contents = p.getInventory().getContents();
+        for (int i = 0; i < contents.length; i++) {
+            ItemStack item = contents[i];
+            if (item == null || item.getType().isAir()) continue;
+
+            String shopId = BlastShopItems.getShopId(plugin, item);
+            if (shopId == null || !shopId.equalsIgnoreCase(id)) continue;
+
+            if (item.getAmount() <= 1) {
+                contents[i] = null;
+            } else {
+                item.setAmount(item.getAmount() - 1);
+                contents[i] = item;
+            }
+            p.getInventory().setContents(contents);
+            p.updateInventory();
+            return true;
+        }
+        return false;
+    }
+
+    private void launchHomingParticle(Player shooter, Player target, BlastMinigameManager bm) {
+        Location start = shooter.getEyeLocation().clone();
+        Particle.DustOptions dust = new Particle.DustOptions(Color.RED, 1.4f);
 
         shooter.playSound(shooter.getLocation(), Sound.ENTITY_FIREWORK_ROCKET_LAUNCH, 0.8f, 1.1f);
 
         new BukkitRunnable() {
             int ticks = 0;
+            Location pos = start.clone();
 
             @Override
             public void run() {
                 ticks++;
-                if (ticks > 80) { // ~4 seconds
-                    try { sb.remove(); } catch (Throwable ignored) {}
+                if (ticks > 120) {
                     cancel();
                     return;
                 }
 
-                if (sb.isDead() || !sb.isValid()) {
+                if (!shooter.isOnline() || !target.isOnline()) {
                     cancel();
                     return;
                 }
 
-                if (!target.isOnline() || gsm.getGameState(target) != GameState.BLAST) {
+                if (gsm.getGameState(shooter) != GameState.BLAST || gsm.getGameState(target) != GameState.BLAST) {
                     cancel();
                     return;
                 }
 
-                Vector to = target.getEyeLocation().toVector().subtract(sb.getLocation().toVector());
-                double dist = to.length();
-                if (dist < 0.2) dist = 0.2;
+                if (shooter.getWorld() != target.getWorld()) {
+                    cancel();
+                    return;
+                }
 
-                Vector desired = to.normalize().multiply(0.65);
-                Vector cur = sb.getVelocity();
+                Vector to = target.getEyeLocation().toVector().subtract(pos.toVector());
+                double dist = Math.max(0.2, to.length());
+                Vector step = to.normalize().multiply(1.1);
+                pos.add(step);
 
-                // Smooth steering
-                Vector next = cur.multiply(0.65).add(desired.multiply(0.35));
-                sb.setVelocity(next);
+                pos.getWorld().spawnParticle(Particle.REDSTONE, pos, 6, 0.05, 0.05, 0.05, 0, dust);
 
-                sb.getWorld().spawnParticle(Particle.END_ROD, sb.getLocation(), 1, 0, 0, 0, 0);
+                if (dist < 1.3) {
+                    bm.applyInstantElim(shooter, target);
+                    target.getWorld().spawnParticle(Particle.EXPLOSION, target.getLocation(), 2, 0.2, 0.2, 0.2, 0);
+                    target.getWorld().playSound(target.getLocation(), Sound.ENTITY_GENERIC_EXPLODE, 0.8f, 1.2f);
+                    cancel();
+                }
             }
         }.runTaskTimer(plugin, 1L, 1L);
+    }
+
+    private void launchEnderSoar(Player p) {
+        EnderPearl pearl = p.launchProjectile(EnderPearl.class);
+        pearl.setShooter(p);
+        pearl.getPersistentDataContainer().set(new NamespacedKey(plugin, "blast_ender_soar"),
+                PersistentDataType.INTEGER, 1);
+
+        enderSoarActive.put(p.getUniqueId(), System.currentTimeMillis());
+
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (!pearl.isValid()) return;
+            if (!pearl.getPassengers().contains(p)) {
+                pearl.addPassenger(p);
+            }
+        });
+
+        Bukkit.getScheduler().runTaskLater(plugin, () -> enderSoarActive.remove(p.getUniqueId()), 200L);
+
+        p.playSound(p.getLocation(), Sound.ENTITY_ENDER_PEARL_THROW, 0.8f, 1.2f);
+    }
+
+    private void digWoolTunnel(Player p) {
+        Location base = p.getLocation().getBlock().getLocation();
+        Vector dir = p.getLocation().getDirection().setY(0).normalize();
+
+        int carved = 0;
+
+        for (int i = 1; i <= 20; i++) {
+            Location step = base.clone().add(dir.clone().multiply(i));
+            Block lower = step.getBlock();
+            Block upper = lower.getRelative(0, 1, 0);
+
+            if (!BlastItems.isColoredWool(lower.getType()) || !BlastItems.isColoredWool(upper.getType())) {
+                break;
+            }
+
+            lower.setType(Material.AIR, false);
+            upper.setType(Material.AIR, false);
+            carved++;
+        }
+
+        if (carved == 0) {
+            p.sendMessage("§c[BLAST] No wool to tunnel through.");
+            p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.7f, 0.6f);
+        } else {
+            p.playSound(p.getLocation(), Sound.BLOCK_WOOL_BREAK, 0.8f, 1.1f);
+            p.spawnParticle(Particle.CLOUD, p.getLocation().add(0, 1, 0), 12, 0.4, 0.2, 0.4, 0.01);
+        }
     }
 
     private void launchFireball(Player shooter) {
@@ -252,30 +444,108 @@ public class BlastUtilityItemsListener implements Listener {
             return;
         }
 
-        // Homing missile hit (snowball)
-        if (proj instanceof Snowball sb) {
-            String targetId = null;
-            try {
-                targetId = sb.getPersistentDataContainer().get(new org.bukkit.NamespacedKey(plugin, "blast_homing"), org.bukkit.persistence.PersistentDataType.STRING);
-            } catch (Throwable ignored) {}
+        if (proj instanceof Arrow arrow) {
+            Integer mark = arrow.getPersistentDataContainer().get(new NamespacedKey(plugin, "blast_boom_slingshot"),
+                    PersistentDataType.INTEGER);
+            if (mark == null || mark != 1) return;
 
-            if (targetId == null) return;
+            Player shooter = (arrow.getShooter() instanceof Player p) ? p : null;
+            Location impact = arrow.getLocation();
 
-            Player shooter = (sb.getShooter() instanceof Player p) ? p : null;
+            impact.getWorld().spawnParticle(Particle.EXPLOSION, impact, 6, 0.8, 0.4, 0.8, 0);
+            impact.getWorld().spawnParticle(Particle.SMOKE, impact, 30, 1.0, 0.5, 1.0, 0.02);
+            impact.getWorld().playSound(impact, Sound.ENTITY_GENERIC_EXPLODE, 0.9f, 0.9f);
 
-            // If hit entity is player, elim directly
-            if (e.getHitEntity() instanceof Player victim) {
-                bm.applyInstantElim(shooter, victim);
-            } else {
-                // Small AoE on block impact
-                bm.applyBigAoE(shooter, sb.getLocation(), 2.5, null);
+            if (bm != null) {
+                double radius = 5.0;
+                for (Player victim : impact.getWorld().getPlayers()) {
+                    if (victim == null || !victim.isOnline()) continue;
+                    if (gsm.getGameState(victim) != GameState.BLAST) continue;
+                    if (victim.getLocation().distanceSquared(impact) > radius * radius) continue;
+
+                    bm.applyInstantElim(shooter, victim);
+                }
             }
 
-            sb.getWorld().spawnParticle(Particle.EXPLOSION, sb.getLocation(), 1, 0.2, 0.2, 0.2, 0);
-            sb.getWorld().playSound(sb.getLocation(), Sound.ENTITY_GENERIC_EXPLODE, 0.7f, 1.4f);
-
-            try { sb.remove(); } catch (Throwable ignored) {}
+            try { arrow.remove(); } catch (Throwable ignored) {}
         }
+
+        if (proj instanceof EnderPearl pearl) {
+            Integer mark = pearl.getPersistentDataContainer().get(new NamespacedKey(plugin, "blast_ender_soar"),
+                    PersistentDataType.INTEGER);
+            if (mark == null || mark != 1) return;
+
+            Player shooter = (pearl.getShooter() instanceof Player p) ? p : null;
+            Location impact = pearl.getLocation();
+
+            if (shooter != null) {
+                enderSoarActive.remove(shooter.getUniqueId());
+                pearl.removePassenger(shooter);
+                Location safe = findSafeLanding(impact, shooter);
+                shooter.teleport(safe);
+            }
+
+            impact.getWorld().spawnParticle(Particle.REDSTONE, impact, 80, 2.0, 1.0, 2.0, 0,
+                    new Particle.DustOptions(Color.AQUA, 1.6f));
+            impact.getWorld().spawnParticle(Particle.EXPLOSION, impact, 6, 0.8, 0.4, 0.8, 0);
+            impact.getWorld().playSound(impact, Sound.ENTITY_GENERIC_EXPLODE, 0.9f, 1.1f);
+
+            if (bm != null && shooter != null) {
+                bm.applyBigAoE(shooter, impact, 5.0, new HashSet<>());
+            }
+
+            try { pearl.remove(); } catch (Throwable ignored) {}
+        }
+    }
+
+    @EventHandler
+    public void onBowShoot(EntityShootBowEvent e) {
+        if (!(e.getEntity() instanceof Player p)) return;
+
+        BlastMinigameManager bm = plugin.getBlastMinigameManager();
+        if (bm == null || !bm.isInProgress()) return;
+        if (gsm.getGameState(p) != GameState.BLAST || !bm.isParticipant(p)) return;
+
+        ItemStack bow = e.getBow();
+        if (bow == null || bow.getType().isAir()) return;
+        String id = BlastShopItems.getShopId(plugin, bow);
+        if (id == null || !id.equalsIgnoreCase("BOOM_SLINGSHOT")) return;
+
+        if (e.getProjectile() instanceof Arrow arrow) {
+            arrow.getPersistentDataContainer().set(new NamespacedKey(plugin, "blast_boom_slingshot"),
+                    PersistentDataType.INTEGER, 1);
+        }
+    }
+
+    @EventHandler
+    public void onEnderSoarTeleport(PlayerTeleportEvent e) {
+        if (e.getCause() != PlayerTeleportEvent.TeleportCause.ENDER_PEARL) return;
+        Player p = e.getPlayer();
+        if (p == null) return;
+
+        Long started = enderSoarActive.get(p.getUniqueId());
+        if (started == null) return;
+
+        e.setCancelled(true);
+    }
+
+    private Location findSafeLanding(Location impact, Player player) {
+        if (impact == null || impact.getWorld() == null) return player.getLocation();
+
+        Location base = impact.getBlock().getLocation().add(0.5, 0, 0.5);
+
+        for (int i = 0; i <= 3; i++) {
+            Location check = base.clone().add(0, i, 0);
+            Block feet = check.getBlock();
+            Block head = feet.getRelative(0, 1, 0);
+            Block below = feet.getRelative(0, -1, 0);
+
+            if (feet.isPassable() && head.isPassable() && !below.isPassable()) {
+                return check.clone().add(0, 0.1, 0);
+            }
+        }
+
+        return base.clone().add(0, 1.0, 0);
     }
 
     private Player findNearestEnemy(Player p, BlastMinigameManager bm, double maxDist) {
