@@ -22,6 +22,7 @@ import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
@@ -197,7 +198,7 @@ public class BlastUtilityItemsListener implements Listener {
             return;
         }
 
-        var inv = Bukkit.createInventory(null, 54, HOMING_TITLE);
+        Inventory inv = Bukkit.createInventory(null, 54, HOMING_TITLE);
         targetModeByPlayer.put(p.getUniqueId(), mode);
 
         int index = 0;
