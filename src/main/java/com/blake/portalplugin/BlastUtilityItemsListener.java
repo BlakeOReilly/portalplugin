@@ -491,9 +491,12 @@ public class BlastUtilityItemsListener implements Listener {
             if (shooter != null) {
                 enderSoarActive.remove(shooter.getUniqueId());
                 pearl.removePassenger(shooter);
-                Location safe = findSafeLanding(impact, shooter);
+                Location safe = BlastLandingUtil.findSafeLanding(impact, shooter);
                 shooter.teleport(safe);
             }
+            p.updateInventory();
+        }
+    }
 
             impact.getWorld().spawnParticle(Particle.DUST, impact, 80, 2.0, 1.0, 2.0, 0,
                     new Particle.DustOptions(Color.AQUA, 1.6f));
@@ -530,7 +533,7 @@ public class BlastUtilityItemsListener implements Listener {
     }
 
     @EventHandler
-    public void onEnderSoarTeleport(PlayerTeleportEvent e) {
+    public void onEnderSoarTeleportHandler(PlayerTeleportEvent e) {
         if (e.getCause() != PlayerTeleportEvent.TeleportCause.ENDER_PEARL) return;
         Player p = e.getPlayer();
         if (p == null) return;
@@ -539,25 +542,6 @@ public class BlastUtilityItemsListener implements Listener {
         if (started == null) return;
 
         e.setCancelled(true);
-    }
-
-    private Location findSafeLanding(Location impact, Player player) {
-        if (impact == null || impact.getWorld() == null) return player.getLocation();
-
-        Location base = impact.getBlock().getLocation().add(0.5, 0, 0.5);
-
-        for (int i = 0; i <= 3; i++) {
-            Location check = base.clone().add(0, i, 0);
-            Block feet = check.getBlock();
-            Block head = feet.getRelative(0, 1, 0);
-            Block below = feet.getRelative(0, -1, 0);
-
-            if (feet.isPassable() && head.isPassable() && !below.isPassable()) {
-                return check.clone().add(0, 0.1, 0);
-            }
-        }
-
-        return base.clone().add(0, 1.0, 0);
     }
 
     private void consumeItemFromHandsById(Player p, String id) {
@@ -599,35 +583,6 @@ public class BlastUtilityItemsListener implements Listener {
                         block.setType(Material.AIR, false);
                     }
                 }
-            }
-        }
-    }
-
-    @EventHandler
-    public void onEnderSoarTeleport(PlayerTeleportEvent e) {
-        if (e.getCause() != PlayerTeleportEvent.TeleportCause.ENDER_PEARL) return;
-        Player p = e.getPlayer();
-        if (p == null) return;
-
-        Long started = enderSoarActive.get(p.getUniqueId());
-        if (started == null) return;
-
-        e.setCancelled(true);
-    }
-
-    private Location findSafeLanding(Location impact, Player player) {
-        if (impact == null || impact.getWorld() == null) return player.getLocation();
-
-        Location base = impact.getBlock().getLocation().add(0.5, 0, 0.5);
-
-        for (int i = 0; i <= 3; i++) {
-            Location check = base.clone().add(0, i, 0);
-            Block feet = check.getBlock();
-            Block head = feet.getRelative(0, 1, 0);
-            Block below = feet.getRelative(0, -1, 0);
-
-            if (feet.isPassable() && head.isPassable() && !below.isPassable()) {
-                return check.clone().add(0, 0.1, 0);
             }
         }
 
