@@ -11,38 +11,31 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
 
+import java.util.List;
 import java.util.Set;
 
 public final class BlastPowerupMenu {
 
+    private static final int UI_MAX_STACKS = 3;
+
     // Reserved menu slots (player inventory indices)
-    // Main inventory rows: 9..35
-    public static final int SPEED_BTN = 9;
-    public static final int SPEED_I1 = 10;
-    public static final int SPEED_I2 = 11;
-    public static final int SPEED_I3 = 12;
+    // Base slots in main inventory rows: 9..35, indicator is base+1.
+    private static final List<Integer> BASE_SLOTS = List.of(9, 11, 13, 15, 17, 19, 21, 23, 25, 27);
 
-    public static final int DAMAGE_BTN = 14;
-    public static final int DAMAGE_I1 = 15;
-    public static final int DAMAGE_I2 = 16;
-    public static final int DAMAGE_I3 = 17;
-
-    public static final int JUMP_BTN = 18;
-    public static final int JUMP_I1 = 19;
-    public static final int JUMP_I2 = 20;
-    public static final int JUMP_I3 = 21;
-
-    public static final int BLASTSPD_BTN = 27;
-    public static final int BLASTSPD_I1 = 28;
-    public static final int BLASTSPD_I2 = 29;
-    public static final int BLASTSPD_I3 = 30;
-
-    private static final Set<Integer> RESERVED = Set.of(
-            SPEED_BTN, SPEED_I1, SPEED_I2, SPEED_I3,
-            DAMAGE_BTN, DAMAGE_I1, DAMAGE_I2, DAMAGE_I3,
-            JUMP_BTN, JUMP_I1, JUMP_I2, JUMP_I3,
-            BLASTSPD_BTN, BLASTSPD_I1, BLASTSPD_I2, BLASTSPD_I3
+    private static final List<BlastPowerupType> UI_POWERUPS = List.of(
+            BlastPowerupType.SPEED,
+            BlastPowerupType.JUMP,
+            BlastPowerupType.BLAST_SPEED,
+            BlastPowerupType.BLASTER_DAMAGE,
+            BlastPowerupType.DASH,
+            BlastPowerupType.KNOCKBACK,
+            BlastPowerupType.SLOW_SHOT,
+            BlastPowerupType.BLIND_SHOT,
+            BlastPowerupType.MARK_TARGET,
+            BlastPowerupType.CONFUSION
     );
+
+    private static final Set<Integer> RESERVED = buildReserved();
 
     private static final String PDC_KEY = "blast_powerup_menu_item"; // string marker
     private static final String PDC_BTN_PREFIX = "btn:";
@@ -52,6 +45,10 @@ public final class BlastPowerupMenu {
 
     public static boolean isReservedSlot(int slot) {
         return RESERVED.contains(slot);
+    }
+
+    public static Set<Integer> getReservedSlots() {
+        return RESERVED;
     }
 
     public static boolean isMenuItem(Plugin plugin, ItemStack it) {
@@ -93,33 +90,16 @@ public final class BlastPowerupMenu {
         PlayerInventory inv = p.getInventory();
         if (inv == null) return;
 
-        int sp = (powerups != null) ? powerups.getStacks(p, BlastPowerupType.SPEED) : 0;
-        int jp = (powerups != null) ? powerups.getStacks(p, BlastPowerupType.JUMP) : 0;
-        int bs = (powerups != null) ? powerups.getStacks(p, BlastPowerupType.BLAST_SPEED) : 0;
-        int dmg = (powerups != null) ? powerups.getStacks(p, BlastPowerupType.BLASTER_DAMAGE) : 0;
+        for (int i = 0; i < UI_POWERUPS.size(); i++) {
+            BlastPowerupType type = UI_POWERUPS.get(i);
+            int baseSlot = BASE_SLOTS.get(i);
+            int indSlot = baseSlot + 1;
 
-        // Buttons
-        setReserved(plugin, p, SPEED_BTN, createButton(plugin, Material.FEATHER, BlastPowerupType.SPEED));
-        setReserved(plugin, p, JUMP_BTN, createButton(plugin, Material.RABBIT_FOOT, BlastPowerupType.JUMP));
-        setReserved(plugin, p, BLASTSPD_BTN, createButton(plugin, Material.REDSTONE_TORCH, BlastPowerupType.BLAST_SPEED));
-        setReserved(plugin, p, DAMAGE_BTN, createButton(plugin, Material.REDSTONE, BlastPowerupType.BLASTER_DAMAGE));
+            setReserved(plugin, p, baseSlot, createButton(plugin, resolveButtonMaterial(type), type));
 
-        // Indicators (blue -> purple enchanted)
-        setReserved(plugin, p, SPEED_I1, createIndicator(plugin, BlastPowerupType.SPEED, 1, sp >= 1));
-        setReserved(plugin, p, SPEED_I2, createIndicator(plugin, BlastPowerupType.SPEED, 2, sp >= 2));
-        setReserved(plugin, p, SPEED_I3, createIndicator(plugin, BlastPowerupType.SPEED, 3, sp >= 3));
-
-        setReserved(plugin, p, JUMP_I1, createIndicator(plugin, BlastPowerupType.JUMP, 1, jp >= 1));
-        setReserved(plugin, p, JUMP_I2, createIndicator(plugin, BlastPowerupType.JUMP, 2, jp >= 2));
-        setReserved(plugin, p, JUMP_I3, createIndicator(plugin, BlastPowerupType.JUMP, 3, jp >= 3));
-
-        setReserved(plugin, p, BLASTSPD_I1, createIndicator(plugin, BlastPowerupType.BLAST_SPEED, 1, bs >= 1));
-        setReserved(plugin, p, BLASTSPD_I2, createIndicator(plugin, BlastPowerupType.BLAST_SPEED, 2, bs >= 2));
-        setReserved(plugin, p, BLASTSPD_I3, createIndicator(plugin, BlastPowerupType.BLAST_SPEED, 3, bs >= 3));
-
-        setReserved(plugin, p, DAMAGE_I1, createIndicator(plugin, BlastPowerupType.BLASTER_DAMAGE, 1, dmg >= 1));
-        setReserved(plugin, p, DAMAGE_I2, createIndicator(plugin, BlastPowerupType.BLASTER_DAMAGE, 2, dmg >= 2));
-        setReserved(plugin, p, DAMAGE_I3, createIndicator(plugin, BlastPowerupType.BLASTER_DAMAGE, 3, dmg >= 3));
+            int stacks = (powerups != null) ? powerups.getStacks(p, type) : 0;
+            setReserved(plugin, p, indSlot, createIndicator(plugin, type, stacks));
+        }
 
         try { p.updateInventory(); } catch (Throwable ignored) {}
     }
@@ -162,27 +142,51 @@ public final class BlastPowerupMenu {
         return it;
     }
 
-    private static ItemStack createIndicator(Plugin plugin, BlastPowerupType type, int index, boolean filled) {
-        Material mat = filled ? Material.PURPLE_DYE : Material.BLUE_DYE;
-        ItemStack it = new ItemStack(mat, 1);
+    private static ItemStack createIndicator(Plugin plugin, BlastPowerupType type, int stacks) {
+        int clamped = Math.max(0, Math.min(UI_MAX_STACKS, stacks));
+        if (clamped <= 0) return null;
+
+        ItemStack it = new ItemStack(Material.BLUE_DYE, clamped);
 
         ItemMeta meta = it.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(filled ? "§5§l" + index : "§9" + index);
-
-            if (filled) {
-                meta.addEnchant(Enchantment.UNBREAKING, 1, true);
-                meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
-            }
+            meta.setDisplayName("§7Purchased: §b" + clamped + "/" + UI_MAX_STACKS);
+            meta.addEnchant(Enchantment.UNBREAKING, 1, true);
+            meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
 
             meta.getPersistentDataContainer().set(
                     new NamespacedKey(plugin, PDC_KEY),
                     PersistentDataType.STRING,
-                    PDC_IND_PREFIX + type.getKey() + ":" + index
+                    PDC_IND_PREFIX + type.getKey()
             );
 
             it.setItemMeta(meta);
         }
         return it;
+    }
+
+    private static Material resolveButtonMaterial(BlastPowerupType type) {
+        return switch (type) {
+            case SPEED -> Material.FEATHER;
+            case JUMP -> Material.RABBIT_FOOT;
+            case BLAST_SPEED -> Material.REDSTONE_TORCH;
+            case BLASTER_DAMAGE -> Material.REDSTONE;
+            case DASH -> Material.SUGAR;
+            case KNOCKBACK -> Material.IRON_SWORD;
+            case SLOW_SHOT -> Material.ICE;
+            case BLIND_SHOT -> Material.INK_SAC;
+            case MARK_TARGET -> Material.SPYGLASS;
+            case CONFUSION -> Material.FERMENTED_SPIDER_EYE;
+            default -> Material.NETHER_STAR;
+        };
+    }
+
+    private static Set<Integer> buildReserved() {
+        Set<Integer> slots = new java.util.HashSet<>();
+        for (int base : BASE_SLOTS) {
+            slots.add(base);
+            slots.add(base + 1);
+        }
+        return Set.copyOf(slots);
     }
 }

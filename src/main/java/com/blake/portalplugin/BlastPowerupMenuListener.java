@@ -118,12 +118,7 @@ public class BlastPowerupMenuListener implements Listener {
 
         int topSize = e.getView().getTopInventory().getSize();
 
-        for (int slot : new int[]{
-                BlastPowerupMenu.SPEED_BTN, BlastPowerupMenu.SPEED_I1, BlastPowerupMenu.SPEED_I2, BlastPowerupMenu.SPEED_I3,
-                BlastPowerupMenu.DAMAGE_BTN, BlastPowerupMenu.DAMAGE_I1, BlastPowerupMenu.DAMAGE_I2, BlastPowerupMenu.DAMAGE_I3,
-                BlastPowerupMenu.JUMP_BTN, BlastPowerupMenu.JUMP_I1, BlastPowerupMenu.JUMP_I2, BlastPowerupMenu.JUMP_I3,
-                BlastPowerupMenu.BLASTSPD_BTN, BlastPowerupMenu.BLASTSPD_I1, BlastPowerupMenu.BLASTSPD_I2, BlastPowerupMenu.BLASTSPD_I3
-        }) {
+        for (int slot : BlastPowerupMenu.getReservedSlots()) {
             int raw = topSize + slot;
             if (e.getRawSlots().contains(raw)) {
                 e.setCancelled(true);
