@@ -444,6 +444,11 @@ public class PortalPlugin extends JavaPlugin {
                 this
         );
 
+        Bukkit.getPluginManager().registerEvents(
+                new BlastCeilingListener(this, gameStateManager),
+                this
+        );
+
         registerOptionalListener(
                 "com.blake.portalplugin.listeners.BlastNewBlastersListener",
                 new Class<?>[]{PortalPlugin.class, GameStateManager.class},

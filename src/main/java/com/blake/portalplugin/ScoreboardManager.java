@@ -106,6 +106,10 @@ public class ScoreboardManager {
         obj.getScore("§8--------------------").setScore(line--);
 
         p.setScoreboard(board);
+
+        if (bm != null && bm.isInProgress()) {
+            bm.applyBlastTeamsToScoreboard(p);
+        }
     }
 
     private String formatSeconds(int seconds) {

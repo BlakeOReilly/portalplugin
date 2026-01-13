@@ -26,6 +26,9 @@ public class BlastMap {
     // Saved region blocks relative to regionMin (dx/dy/dz)
     private List<BlastSavedBlock> savedBlocks = new ArrayList<>();
 
+    // Optional ceiling Y cap for this map
+    private Integer ceilingY;
+
     // 4 spawn points per team (up to 4 each)
     private final EnumMap<BlastTeam, List<Location>> spawns = new EnumMap<>(BlastTeam.class);
 
@@ -103,6 +106,14 @@ public class BlastMap {
 
     public void setSavedBlocks(List<BlastSavedBlock> savedBlocks) {
         this.savedBlocks = (savedBlocks == null) ? new ArrayList<>() : new ArrayList<>(savedBlocks);
+    }
+
+    public Integer getCeilingY() {
+        return ceilingY;
+    }
+
+    public void setCeilingY(Integer ceilingY) {
+        this.ceilingY = ceilingY;
     }
 
     // -------------------------
@@ -184,6 +195,7 @@ public class BlastMap {
 
         sec.set("region.min", regionMin == null ? null : serializeLocation(regionMin));
         sec.set("region.max", regionMax == null ? null : serializeLocation(regionMax));
+        sec.set("ceiling.y", ceilingY);
 
         // blocks list: "dx,dy,dz,MATERIAL"
         List<String> blocks = new ArrayList<>();
@@ -221,6 +233,10 @@ public class BlastMap {
         Location rmax = deserializeLocation(sec.getString("region.max", null));
         map.setRegionMin(rmin);
         map.setRegionMax(rmax);
+
+        if (sec.contains("ceiling.y")) {
+            map.setCeilingY(sec.getInt("ceiling.y"));
+        }
 
         // blocks
         List<String> blocks = sec.getStringList("blocks");

@@ -655,6 +655,19 @@ public class BlastMinigameManager {
         return ta != null && ta == tb;
     }
 
+    public void applyBlastTeamsToScoreboard(Player viewer) {
+        if (!inProgress) return;
+        if (viewer == null || !viewer.isOnline()) return;
+
+        List<Player> online = new ArrayList<>();
+        for (UUID id : new ArrayList<>(participants)) {
+            Player p = Bukkit.getPlayer(id);
+            if (p != null && p.isOnline()) online.add(p);
+        }
+
+        applyBlastTeamsToScoreboard(viewer, online);
+    }
+
     private void applyBlastTeamsToAllParticipantScoreboards() {
         if (!inProgress) return;
 
@@ -665,30 +678,7 @@ public class BlastMinigameManager {
         }
 
         for (Player viewer : online) {
-            org.bukkit.scoreboard.Scoreboard sb = viewer.getScoreboard();
-            if (sb == null) continue;
-
-            ensureTeamsExist(sb);
-
-            for (BlastTeam t : BlastTeam.values()) {
-                Team team = sb.getTeam(t.getScoreboardTeamName());
-                if (team == null) continue;
-                for (Player p : online) {
-                    try { team.removeEntry(p.getName()); } catch (Throwable ignored) {}
-                }
-            }
-
-            for (Player p : online) {
-                BlastTeam t = teamByPlayer.get(p.getUniqueId());
-                if (t == null) continue;
-
-                Team team = sb.getTeam(t.getScoreboardTeamName());
-                if (team == null) {
-                    team = sb.registerNewTeam(t.getScoreboardTeamName());
-                    configureTeam(team, t);
-                }
-                try { team.addEntry(p.getName()); } catch (Throwable ignored) {}
-            }
+            applyBlastTeamsToScoreboard(viewer, online);
         }
 
         for (Player p : online) {
@@ -697,6 +687,33 @@ public class BlastMinigameManager {
             try {
                 p.setPlayerListName(t.getColor() + p.getName());
             } catch (Throwable ignored) {}
+        }
+    }
+
+    private void applyBlastTeamsToScoreboard(Player viewer, List<Player> online) {
+        org.bukkit.scoreboard.Scoreboard sb = viewer.getScoreboard();
+        if (sb == null) return;
+
+        ensureTeamsExist(sb);
+
+        for (BlastTeam t : BlastTeam.values()) {
+            Team team = sb.getTeam(t.getScoreboardTeamName());
+            if (team == null) continue;
+            for (Player p : online) {
+                try { team.removeEntry(p.getName()); } catch (Throwable ignored) {}
+            }
+        }
+
+        for (Player p : online) {
+            BlastTeam t = teamByPlayer.get(p.getUniqueId());
+            if (t == null) continue;
+
+            Team team = sb.getTeam(t.getScoreboardTeamName());
+            if (team == null) {
+                team = sb.registerNewTeam(t.getScoreboardTeamName());
+                configureTeam(team, t);
+            }
+            try { team.addEntry(p.getName()); } catch (Throwable ignored) {}
         }
     }
 
