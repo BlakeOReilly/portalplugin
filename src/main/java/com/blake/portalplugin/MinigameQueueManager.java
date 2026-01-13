@@ -3,8 +3,6 @@ package com.blake.portalplugin;
 
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
-import org.bukkit.scheduler.BukkitRunnable;
-
 import java.util.*;
 
 public class MinigameQueueManager {
@@ -16,7 +14,8 @@ public class MinigameQueueManager {
     private final LinkedHashSet<UUID> queue = new LinkedHashSet<>();
 
     // Countdown reference
-    private BukkitRunnable countdownTask = null;
+    private MinigameQueueCountdownTask countdownTask = null;
+    private boolean countdownPaused = false;
 
     private boolean shutdown = false;
 
@@ -55,14 +54,16 @@ public class MinigameQueueManager {
             return;
         }
 
-        queue.add(p.getUniqueId());
+        boolean added = queue.add(p.getUniqueId());
 
         // Put player into QUEUING (safe helper exists on PortalPlugin)
         try {
             plugin.setPlayerQueuedStateSafe(p);
         } catch (Throwable ignored) {}
 
-        p.sendMessage("§a[BLAST] You joined the queue. (" + getQueuedOnlineCount() + " queued)");
+        if (added) {
+            p.sendMessage("§a[BLAST] You joined the queue. (" + getQueuedOnlineCount() + " queued)");
+        }
 
         // Start countdown if enough players
         startCountdownIfNeeded();
@@ -97,6 +98,7 @@ public class MinigameQueueManager {
             try { countdownTask.cancel(); } catch (Throwable ignored) {}
             countdownTask = null;
         }
+        countdownPaused = false;
     }
 
     /**
@@ -150,6 +152,7 @@ public class MinigameQueueManager {
      */
     public void clearCountdownRef() {
         countdownTask = null;
+        countdownPaused = false;
     }
 
     /**
@@ -197,15 +200,55 @@ public class MinigameQueueManager {
         if (blast != null && blast.isInProgress()) return;
 
         broadcastToQueued("§a[BLAST] Enough players joined! Countdown started.");
-
-        // Use the task class you posted (MinigameQueueCountdownTask)
-        countdownTask = new MinigameQueueCountdownTask(this, getCountdownSeconds());
-        countdownTask.runTaskTimer(plugin, 20L, 20L);
+        startCountdownWithSeconds(getCountdownSeconds());
     }
 
     private void clearQueueAndCountdown() {
         queue.clear();
         stopCountdown();
+    }
+
+    public boolean isCountdownPaused() {
+        return countdownPaused;
+    }
+
+    public boolean hasCountdown() {
+        return countdownTask != null;
+    }
+
+    public void pauseCountdown() {
+        if (countdownTask == null) return;
+        countdownPaused = true;
+        countdownTask.setPaused(true);
+    }
+
+    public void resumeCountdown() {
+        if (countdownTask == null) return;
+        countdownPaused = false;
+        countdownTask.setPaused(false);
+    }
+
+    public boolean restartCountdown(int seconds) {
+        if (countdownTask != null) {
+            countdownPaused = false;
+            countdownTask.setPaused(false);
+            countdownTask.setSeconds(seconds);
+            return true;
+        }
+
+        if (getQueuedOnlineCount() < getMinPlayers()) {
+            broadcastToQueued("§c[BLAST] Not enough players to restart the countdown.");
+            return false;
+        }
+
+        startCountdownWithSeconds(seconds);
+        return true;
+    }
+
+    private void startCountdownWithSeconds(int seconds) {
+        countdownPaused = false;
+        countdownTask = new MinigameQueueCountdownTask(this, seconds);
+        countdownTask.runTaskTimer(plugin, 20L, 20L);
     }
 
     private boolean isBlastMinigameServer() {
@@ -216,5 +259,9 @@ public class MinigameQueueManager {
         if (mg == null) return false;
 
         return mg.equalsIgnoreCase("blast");
+    }
+
+    public boolean isBlastMinigameQueueActive() {
+        return isBlastMinigameServer();
     }
 }

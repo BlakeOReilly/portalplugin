@@ -237,6 +237,9 @@ public class GameStateManager implements Listener {
             case SPLEEF, PVP, SUMO, BLAST -> {
                 if (player.getGameMode() != GameMode.SURVIVAL) player.setGameMode(GameMode.SURVIVAL);
             }
+            case SPECTATOR -> {
+                if (player.getGameMode() != GameMode.SPECTATOR) player.setGameMode(GameMode.SPECTATOR);
+            }
             case ADMIN -> {
                 if (player.getGameMode() != GameMode.CREATIVE) player.setGameMode(GameMode.CREATIVE);
             }
@@ -345,6 +348,19 @@ public class GameStateManager implements Listener {
                         try { pm2.applyEffects(player); } catch (Throwable ignored) {}
                     }
 
+                    player.updateInventory();
+                });
+            }
+
+            case SPECTATOR -> {
+                if (collectiblesManager != null) collectiblesManager.removeCollectiblesItem(player);
+                if (navigationManager != null) navigationManager.removeNavigationItem(player);
+                if (cosmeticsManager != null) cosmeticsManager.removeCosmeticsItem(player);
+
+                hardResetPlayerInventory(player);
+
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    hardResetPlayerInventory(player);
                     player.updateInventory();
                 });
             }
@@ -487,6 +503,7 @@ public class GameStateManager implements Listener {
                 || state == GameState.SPLEEF
                 || state == GameState.SUMO
                 || state == GameState.BLAST
+                || state == GameState.SPECTATOR
                 || state == GameState.HUB
                 || state == GameState.ARENA;
     }

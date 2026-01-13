@@ -358,7 +358,7 @@ public class BlastUtilityItemsListener implements Listener {
                 pos.getWorld().spawnParticle(Particle.DUST, pos, 6, 0.05, 0.05, 0.05, 0, dust);
 
                 if (dist < 1.3) {
-                    bm.applyInstantElim(shooter, target);
+                    bm.applyInstantElim(shooter, target, BlastDamageSource.HOMING_MISSILE);
                     target.getWorld().spawnParticle(Particle.EXPLOSION, target.getLocation(), 2, 0.2, 0.2, 0.2, 0);
                     target.getWorld().playSound(target.getLocation(), Sound.ENTITY_GENERIC_EXPLODE, 0.8f, 1.2f);
                     cancel();

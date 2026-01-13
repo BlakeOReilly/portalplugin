@@ -325,6 +325,21 @@ public class PortalPlugin extends JavaPlugin {
             getCommand("blastmap").setExecutor(cmd);
             getCommand("blastmap").setTabCompleter(cmd);
         }
+
+        if (getCommand("spawnprotection") != null) {
+            var cmd = new SpawnProtectionCommand(this);
+            getCommand("spawnprotection").setExecutor(cmd);
+            getCommand("spawnprotection").setTabCompleter(cmd);
+        }
+
+        if (getCommand("pausecountdown") != null)
+            getCommand("pausecountdown").setExecutor(new PauseCountdownCommand(minigameQueueManager));
+
+        if (getCommand("resumecountdown") != null)
+            getCommand("resumecountdown").setExecutor(new ResumeCountdownCommand(minigameQueueManager));
+
+        if (getCommand("restartcountdown") != null)
+            getCommand("restartcountdown").setExecutor(new RestartCountdownCommand(minigameQueueManager));
     }
 
     private void registerListeners() {
