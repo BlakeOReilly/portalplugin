@@ -51,6 +51,11 @@ public class ScoreboardManager {
             case SPECTATOR -> applySpectatorBoard(player);
             default     -> applyHubBoard(player);
         }
+
+        BlastMinigameManager bm = plugin.getBlastMinigameManager();
+        if (bm != null && bm.isInProgress()) {
+            bm.applyBlastTeamsToScoreboard(player);
+        }
     }
 
     public void refreshAll() {
@@ -106,6 +111,7 @@ public class ScoreboardManager {
         obj.getScore("§8--------------------").setScore(line--);
 
         p.setScoreboard(board);
+
     }
 
     private String formatSeconds(int seconds) {
