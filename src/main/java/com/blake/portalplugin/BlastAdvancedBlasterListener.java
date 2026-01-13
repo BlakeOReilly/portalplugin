@@ -484,7 +484,7 @@ public class BlastAdvancedBlasterListener implements Listener {
                 playSoundSafe(w, loc, Sound.ENTITY_LIGHTNING_BOLT_IMPACT, 0.7f, 1.2f);
             }
 
-            bm.applyInstantElim(caster, v);
+            bm.applyInstantElim(caster, v, BlastDamageSource.STRIKE_BLASTER);
         }
     }
 

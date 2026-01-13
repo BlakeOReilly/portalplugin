@@ -40,6 +40,8 @@ public class BlastMinigameManager {
     private final Map<UUID, Integer> spawnIndexByPlayer = new HashMap<>();
 
     private final Map<BlastTeam, Integer> livesByTeam = new EnumMap<>(BlastTeam.class);
+    private final Set<BlastTeam> eliminatedTeams = EnumSet.noneOf(BlastTeam.class);
+    private final Map<BlastTeam, BlastSpawnProtectionRegion> spawnProtectionByTeam = new EnumMap<>(BlastTeam.class);
 
     private BlastGameTimerTask timerTask = null;
     private int secondsRemaining = MAX_SECONDS;
@@ -55,6 +57,7 @@ public class BlastMinigameManager {
         this.gameStateManager = gameStateManager;
         this.mapStore = new BlastMapStore(plugin);
         resetLives();
+        loadSpawnProtectionFromConfig();
     }
 
     private BlastPowerupManager getPowerupManagerSafe() {
@@ -143,10 +146,69 @@ public class BlastMinigameManager {
         for (BlastTeam t : BlastTeam.values()) {
             livesByTeam.put(t, STARTING_LIVES);
         }
+        eliminatedTeams.clear();
     }
 
     private void resetElimTokens() {
         elimTokensByPlayer.clear();
+    }
+
+    private void loadSpawnProtectionFromConfig() {
+        spawnProtectionByTeam.clear();
+
+        var root = plugin.getConfig().getConfigurationSection("blast.spawn-protection");
+        if (root == null) return;
+
+        for (BlastTeam team : BlastTeam.values()) {
+            var section = root.getConfigurationSection(team.getKey());
+            if (section == null) continue;
+
+            String world = section.getString("world");
+            if (world == null || world.isBlank()) continue;
+
+            double x1 = section.getDouble("x1");
+            double y1 = section.getDouble("y1");
+            double z1 = section.getDouble("z1");
+            double x2 = section.getDouble("x2");
+            double y2 = section.getDouble("y2");
+            double z2 = section.getDouble("z2");
+
+            spawnProtectionByTeam.put(team, new BlastSpawnProtectionRegion(world, x1, y1, z1, x2, y2, z2));
+        }
+    }
+
+    public void setSpawnProtection(BlastTeam team, Location a, Location b) {
+        if (team == null || a == null || b == null) return;
+        if (a.getWorld() == null || b.getWorld() == null) return;
+        if (!a.getWorld().getName().equals(b.getWorld().getName())) return;
+
+        String world = a.getWorld().getName();
+        spawnProtectionByTeam.put(team, new BlastSpawnProtectionRegion(
+                world,
+                a.getX(), a.getY(), a.getZ(),
+                b.getX(), b.getY(), b.getZ()
+        ));
+
+        String path = "blast.spawn-protection." + team.getKey();
+        plugin.getConfig().set(path + ".world", world);
+        plugin.getConfig().set(path + ".x1", a.getX());
+        plugin.getConfig().set(path + ".y1", a.getY());
+        plugin.getConfig().set(path + ".z1", a.getZ());
+        plugin.getConfig().set(path + ".x2", b.getX());
+        plugin.getConfig().set(path + ".y2", b.getY());
+        plugin.getConfig().set(path + ".z2", b.getZ());
+        plugin.saveConfig();
+    }
+
+    private boolean isSpawnProtected(Player victim) {
+        if (victim == null || victim.getWorld() == null) return false;
+        BlastTeam team = teamByPlayer.get(victim.getUniqueId());
+        if (team == null) return false;
+
+        BlastSpawnProtectionRegion region = spawnProtectionByTeam.get(team);
+        if (region == null) return false;
+
+        return region.contains(victim.getLocation());
     }
 
     private void awardElimToken(Player killer, Player victim) {
@@ -314,6 +376,7 @@ public class BlastMinigameManager {
         if (shooter == null || victim == null) return;
         if (!shooter.isOnline() || !victim.isOnline()) return;
         if (!isParticipant(shooter) || !isParticipant(victim)) return;
+        if (!canDamage(victim, BlastDamageSource.DEFAULT)) return;
         if (sameTeam(shooter, victim)) return; // NO FRIENDLY FIRE
 
         BlastStrikeUtil.requestCancel(plugin, victim);
@@ -348,6 +411,7 @@ public class BlastMinigameManager {
         if (shooter == null || victim == null) return;
         if (!shooter.isOnline() || !victim.isOnline()) return;
         if (!isParticipant(shooter) || !isParticipant(victim)) return;
+        if (!canDamage(victim, BlastDamageSource.DEFAULT)) return;
         if (sameTeam(shooter, victim)) return; // NO FRIENDLY FIRE
 
         BlastStrikeUtil.requestCancel(plugin, victim);
@@ -375,9 +439,11 @@ public class BlastMinigameManager {
 
             Player victim = Bukkit.getPlayer(id);
             if (victim == null || !victim.isOnline()) continue;
+            if (gameStateManager.getGameState(victim) != GameState.BLAST) continue;
 
             if (victim.getWorld() != center.getWorld()) continue;
             if (victim.getLocation().distanceSquared(center) > r2) continue;
+            if (!canDamage(victim, BlastDamageSource.DEFAULT)) continue;
 
             BlastTeam victimTeam = teamByPlayer.get(victim.getUniqueId());
             if (victimTeam == null) continue;
@@ -404,6 +470,16 @@ public class BlastMinigameManager {
     }
 
     // =========================
+
+    private boolean canDamage(Player victim, BlastDamageSource source) {
+        if (victim == null) return false;
+        if (gameStateManager.getGameState(victim) != GameState.BLAST) return false;
+
+        BlastDamageSource resolved = (source != null) ? source : BlastDamageSource.DEFAULT;
+        if (isSpawnProtected(victim) && !resolved.bypassesSpawnProtection()) return false;
+
+        return true;
+    }
 
     private void applyBlasterPowerups(Player shooter, Player victim) {
         if (shooter == null || victim == null) return;
@@ -653,10 +729,11 @@ public class BlastMinigameManager {
 
     // ===== Elim / armor handling =====
 
-    public void applyInstantElim(Player attacker, Player victim) {
+    public void applyInstantElim(Player attacker, Player victim, BlastDamageSource source) {
         if (!inProgress) return;
         if (victim == null || !victim.isOnline()) return;
         if (!isParticipant(victim)) return;
+        if (!canDamage(victim, source)) return;
 
         if (attacker != null) {
             if (!attacker.isOnline()) return;
@@ -677,7 +754,11 @@ public class BlastMinigameManager {
 
     // COMPAT: older callers
     public void applyInstantElim(Player victim) {
-        applyInstantElim(null, victim);
+        applyInstantElim(null, victim, BlastDamageSource.DEFAULT);
+    }
+
+    public void applyInstantElim(Player attacker, Player victim) {
+        applyInstantElim(attacker, victim, BlastDamageSource.DEFAULT);
     }
 
     private void wipeAllArmor(Player victim) {
@@ -729,9 +810,21 @@ public class BlastMinigameManager {
     private void respawnAndConsumeLife(Player victim, BlastTeam victimTeam) {
         if (victim == null || victimTeam == null) return;
 
+        if (eliminatedTeams.contains(victimTeam) || livesByTeam.getOrDefault(victimTeam, STARTING_LIVES) <= 0) {
+            setTeamSpectator(victimTeam);
+            return;
+        }
+
         int old = livesByTeam.getOrDefault(victimTeam, STARTING_LIVES);
         int now = Math.max(0, old - 1);
         livesByTeam.put(victimTeam, now);
+
+        if (now <= 0) {
+            setTeamSpectator(victimTeam);
+            refreshBoards();
+            checkForLastTeamStanding();
+            return;
+        }
 
         int idx = spawnIndexByPlayer.getOrDefault(victim.getUniqueId(), 0);
         Location spawn = (activeMap != null) ? activeMap.getSpawnFor(victimTeam, idx) : null;
@@ -759,10 +852,43 @@ public class BlastMinigameManager {
 
         applyBlastTeamsToAllParticipantScoreboards();
         refreshBoards();
+    }
 
-        if (now <= 0) {
-            endGame("Team " + victimTeam.getColor() + victimTeam.getKey().toUpperCase() + "§c ran out of lives!");
+    private void setTeamSpectator(BlastTeam team) {
+        if (team == null) return;
+
+        boolean newlyEliminated = eliminatedTeams.add(team);
+        if (newlyEliminated) {
+            broadcastToParticipants("§c[BLAST] Team " + team.getColor() + team.getKey().toUpperCase() + "§c is out of lives!");
         }
+
+        for (UUID id : new ArrayList<>(participants)) {
+            BlastTeam t = teamByPlayer.get(id);
+            if (t != team) continue;
+
+            Player p = Bukkit.getPlayer(id);
+            if (p == null || !p.isOnline()) continue;
+            setGameStateSafe(p, "SPECTATOR", "HUB");
+        }
+    }
+
+    private void checkForLastTeamStanding() {
+        BlastTeam last = getLastTeamStanding();
+        if (last == null) return;
+        endGame("Team " + last.getColor() + last.getKey().toUpperCase() + "§a wins!");
+    }
+
+    private BlastTeam getLastTeamStanding() {
+        BlastTeam remaining = null;
+        int aliveCount = 0;
+
+        for (BlastTeam team : BlastTeam.values()) {
+            if (livesByTeam.getOrDefault(team, 0) <= 0) continue;
+            aliveCount++;
+            remaining = team;
+        }
+
+        return aliveCount == 1 ? remaining : null;
     }
 
     private void refreshBoards() {
@@ -847,6 +973,14 @@ public class BlastMinigameManager {
 
         resetLives();
         refreshBoards();
+
+        MinigameQueueManager queueManager = plugin.getMinigameQueueManager();
+        if (queueManager != null) {
+            for (Player online : Bukkit.getOnlinePlayers()) {
+                if (online == null || !online.isOnline()) continue;
+                queueManager.handleJoin(online);
+            }
+        }
     }
 
     void tickSecond() {
@@ -854,7 +988,7 @@ public class BlastMinigameManager {
 
         secondsRemaining--;
         if (secondsRemaining <= 0) {
-            endGame("Time limit reached.");
+            handleTimeLimitEnd();
             return;
         }
 
@@ -864,6 +998,65 @@ public class BlastMinigameManager {
         }
 
         refreshBoards();
+    }
+
+    private void handleTimeLimitEnd() {
+        BlastTeam winner = resolveTimeLimitWinner();
+        if (winner != null) {
+            endGame("Time limit reached. Team " + winner.getColor() + winner.getKey().toUpperCase() + "§a wins!");
+            return;
+        }
+
+        endGame("Time limit reached. Everyone loses.");
+    }
+
+    private BlastTeam resolveTimeLimitWinner() {
+        Map<BlastTeam, Integer> elimTotals = getTeamElimTotals();
+
+        int maxElims = -1;
+        List<BlastTeam> elimLeaders = new ArrayList<>();
+        for (BlastTeam team : BlastTeam.values()) {
+            int elims = elimTotals.getOrDefault(team, 0);
+            if (elims > maxElims) {
+                maxElims = elims;
+                elimLeaders.clear();
+                elimLeaders.add(team);
+            } else if (elims == maxElims) {
+                elimLeaders.add(team);
+            }
+        }
+
+        if (elimLeaders.size() == 1) return elimLeaders.get(0);
+
+        int maxLives = -1;
+        List<BlastTeam> lifeLeaders = new ArrayList<>();
+        for (BlastTeam team : elimLeaders) {
+            int lives = livesByTeam.getOrDefault(team, 0);
+            if (lives > maxLives) {
+                maxLives = lives;
+                lifeLeaders.clear();
+                lifeLeaders.add(team);
+            } else if (lives == maxLives) {
+                lifeLeaders.add(team);
+            }
+        }
+
+        return lifeLeaders.size() == 1 ? lifeLeaders.get(0) : null;
+    }
+
+    private Map<BlastTeam, Integer> getTeamElimTotals() {
+        Map<BlastTeam, Integer> totals = new EnumMap<>(BlastTeam.class);
+        for (BlastTeam team : BlastTeam.values()) totals.put(team, 0);
+
+        for (UUID id : new ArrayList<>(participants)) {
+            BlastTeam team = teamByPlayer.get(id);
+            if (team == null) continue;
+            int cur = totals.getOrDefault(team, 0);
+            int add = elimTokensByPlayer.getOrDefault(id, 0);
+            totals.put(team, cur + add);
+        }
+
+        return totals;
     }
 
     private BlastMap resolveMap(String mapName) {

@@ -6,10 +6,27 @@ public class MinigameQueueCountdownTask extends BukkitRunnable {
 
     private final MinigameQueueManager manager;
     private int seconds;
+    private boolean paused;
 
     public MinigameQueueCountdownTask(MinigameQueueManager manager, int seconds) {
         this.manager = manager;
         this.seconds = Math.max(1, seconds);
+    }
+
+    public int getSeconds() {
+        return seconds;
+    }
+
+    public void setSeconds(int seconds) {
+        this.seconds = Math.max(1, seconds);
+    }
+
+    public boolean isPaused() {
+        return paused;
+    }
+
+    public void setPaused(boolean paused) {
+        this.paused = paused;
     }
 
     @Override
@@ -19,17 +36,21 @@ public class MinigameQueueCountdownTask extends BukkitRunnable {
             return;
         }
 
-        if (seconds <= 0) {
-            manager.broadcastToQueued("§a[Queue] Starting BLAST!");
-            manager.tryStartMinigameFromQueue();
+        // If less than min players remain, stop
+        if (manager.size() < manager.getMinPlayers()) {
+            manager.broadcastToQueued("§c[Queue] Countdown stopped – waiting for more players.");
+            manager.stopCountdown();
             cancel();
             return;
         }
 
-        // If less than 2 players remain, stop
-        if (manager.size() < 2) {
-            manager.broadcastToQueued("§c[Queue] Countdown stopped – waiting for more players.");
-            manager.stopCountdown();
+        if (paused) {
+            return;
+        }
+
+        if (seconds <= 0) {
+            manager.broadcastToQueued("§a[Queue] Starting BLAST!");
+            manager.tryStartMinigameFromQueue();
             cancel();
             return;
         }

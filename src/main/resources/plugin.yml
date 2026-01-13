@@ -159,6 +159,26 @@ commands:
       /blastmap info <name>
     permission: portalplugin.blast.maps
 
+  spawnprotection:
+    description: Set BLAST spawn protection region for a team
+    usage: /spawnprotection <team> <x1> <y1> <z1> <x2> <y2> <z2>
+    permission: portalplugin.blast.spawnprotection
+
+  pausecountdown:
+    description: Pause the BLAST queue countdown
+    usage: /pausecountdown
+    permission: portalplugin.blast.countdown
+
+  resumecountdown:
+    description: Resume the BLAST queue countdown
+    usage: /resumecountdown
+    permission: portalplugin.blast.countdown
+
+  restartcountdown:
+    description: Restart the BLAST queue countdown back to 30 seconds
+    usage: /restartcountdown
+    permission: portalplugin.blast.countdown
+
 permissions:
 
   portalplugin.stats:
@@ -223,4 +243,12 @@ permissions:
 
   portalplugin.blast.maps:
     description: Allows managing BLAST maps (save region, set spawns, regen)
+    default: op
+
+  portalplugin.blast.spawnprotection:
+    description: Allows setting BLAST spawn protection regions
+    default: op
+
+  portalplugin.blast.countdown:
+    description: Allows pausing/resuming/restarting the BLAST queue countdown
     default: op

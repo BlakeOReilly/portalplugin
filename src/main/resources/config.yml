@@ -22,6 +22,7 @@ permissions:
     - myplugin.spleef.play
     - myplugin.spleef.kit.basic
   PVP: []
+  SPECTATOR: []
   ADMIN:
     - '*'
     - portalplugin.currency.admin
@@ -73,3 +74,5 @@ blast:
   queue:
     min-players: 2
     countdown-seconds: 30
+
+  spawn-protection: {}

@@ -7,6 +7,7 @@ public enum GameState {
     PVP,
     SUMO,
     BLAST,
+    SPECTATOR,
     ADMIN;
 
     public static GameState fromString(String s) {
