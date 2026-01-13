@@ -48,6 +48,7 @@ public class ScoreboardManager {
             case PVP    -> applyPvpBoard(player);
             case SUMO   -> applySumoBoard(player);
             case BLAST  -> applyBlastBoard(player);
+            case SPECTATOR -> applySpectatorBoard(player);
             default     -> applyHubBoard(player);
         }
     }
@@ -112,6 +113,48 @@ public class ScoreboardManager {
         int m = seconds / 60;
         int s = seconds % 60;
         return String.format("%02d:%02d", m, s);
+    }
+
+    // --------------------------------------------------------------------
+    // SPECTATOR BOARD
+    // --------------------------------------------------------------------
+    private void applySpectatorBoard(Player p) {
+        Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
+        Objective obj = board.registerNewObjective("spectator", "dummy", "§7§lSPECTATOR");
+        obj.setDisplaySlot(DisplaySlot.SIDEBAR);
+
+        BlastMinigameManager bm = plugin.getBlastMinigameManager();
+        boolean blastActive = bm != null && bm.isInProgress();
+        String gameName = blastActive ? "§6BLAST" : "§7NONE";
+        String time = blastActive ? formatSeconds(bm.getSecondsRemaining()) : "--:--";
+
+        int line = 15;
+
+        obj.getScore("§7--------------------").setScore(line--);
+
+        obj.getScore("§fGame: " + gameName).setScore(line--);
+        obj.getScore("§fTime: §e" + time).setScore(line--);
+
+        obj.getScore(BLANK_1).setScore(line--);
+
+        obj.getScore("§fTeam Lives").setScore(line--);
+        for (BlastTeam t : BlastTeam.values()) {
+            int lives = blastActive ? bm.getTeamLives(t) : 0;
+            String label = t.getColor() + t.getKey().toUpperCase() + "§7: §f" + lives;
+            obj.getScore(label).setScore(line--);
+        }
+
+        obj.getScore(BLANK_2).setScore(line--);
+
+        String serverCode = getServerCode();
+        obj.getScore("§fServer").setScore(line--);
+        obj.getScore("§e" + serverCode).setScore(line--);
+
+        obj.getScore(BLANK_3).setScore(line--);
+        obj.getScore("www.example.com").setScore(line--);
+        obj.getScore("§8--------------------").setScore(line--);
+
+        p.setScoreboard(board);
     }
 
     // --------------------------------------------------------------------

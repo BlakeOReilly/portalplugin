@@ -5,6 +5,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Particle;
+import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
@@ -171,6 +172,8 @@ public class BlastBlasterListener implements Listener {
         World world = start.getWorld();
         if (world == null) return;
 
+        world.playSound(start, Sound.ENTITY_FIREWORK_ROCKET_LAUNCH, 0.7f, 1.25f);
+
         BlastMinigameManager bm = plugin.getBlastMinigameManager();
         Vector dir = start.getDirection().normalize();
 
@@ -237,6 +240,8 @@ public class BlastBlasterListener implements Listener {
         Location start = shooter.getEyeLocation().clone();
         World world = start.getWorld();
         if (world == null) return;
+
+        world.playSound(start, Sound.ENTITY_GENERIC_EXPLODE, 0.6f, 0.9f);
 
         BlastMinigameManager bm = plugin.getBlastMinigameManager();
 
