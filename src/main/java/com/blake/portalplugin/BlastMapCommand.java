@@ -88,10 +88,43 @@ public class BlastMapCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage("§ePaste: §f" + (map.getPasteLocation() == null ? "(none)" : format(map.getPasteLocation())));
             sender.sendMessage("§eRegion: §f" + (map.getRegionMin() == null ? "(none)" : (format(map.getRegionMin()) + " -> " + format(map.getRegionMax()))));
             sender.sendMessage("§eBlocks: §f" + (map.getSavedBlocks() == null ? 0 : map.getSavedBlocks().size()));
+            sender.sendMessage("§eCeiling Y: §f" + (map.getCeilingY() == null ? "(none)" : map.getCeilingY()));
 
             for (BlastTeam t : BlastTeam.values()) {
                 sender.sendMessage("§eSpawns " + t.getKey() + ": §f" + countNonNull(map.getSpawns(t)) + "/4");
             }
+            return true;
+        }
+
+        if (sub.equals("setceiling")) {
+            if (args.length < 3) {
+                sender.sendMessage("§cUsage: /blastmap setceiling <name> <y>");
+                return true;
+            }
+            String name = args[1].trim().toLowerCase();
+            BlastMinigameManager mgr = plugin.getBlastMinigameManager();
+            if (mgr == null) {
+                sender.sendMessage("§c[BLAST] Manager not available.");
+                return true;
+            }
+            BlastMap map = mgr.getMapStore().getMap(name);
+            if (map == null) {
+                sender.sendMessage("§c[BLAST] Map not found: " + name);
+                return true;
+            }
+
+            int y;
+            try {
+                y = Integer.parseInt(args[2]);
+            } catch (Exception e) {
+                sender.sendMessage("§c[BLAST] Y must be a number.");
+                return true;
+            }
+
+            map.setCeilingY(y);
+            mgr.getMapStore().putMap(map);
+
+            sender.sendMessage("§a[BLAST] Set ceiling Y for '" + name + "' to " + y + ".");
             return true;
         }
 
@@ -321,6 +354,7 @@ public class BlastMapCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage("§e/blastmap list");
         sender.sendMessage("§e/blastmap create <name>");
         sender.sendMessage("§e/blastmap info <name>");
+        sender.sendMessage("§e/blastmap setceiling <name> <y>");
         sender.sendMessage("§e/blastmap saveregion <name>");
         sender.sendMessage("§e/blastmap setpaste <name>");
         sender.sendMessage("§e/blastmap setspawn <name> <red|green|yellow|blue> <1-4>");
@@ -345,7 +379,7 @@ public class BlastMapCommand implements CommandExecutor, TabCompleter {
         if (!sender.hasPermission("portalplugin.blast.maps")) return List.of();
 
         if (args.length == 1) {
-            return partial(args[0], List.of("list", "create", "saveregion", "setpaste", "setspawn", "regen", "info"));
+            return partial(args[0], List.of("list", "create", "saveregion", "setpaste", "setspawn", "setceiling", "regen", "info"));
         }
 
         if (args.length == 2) {

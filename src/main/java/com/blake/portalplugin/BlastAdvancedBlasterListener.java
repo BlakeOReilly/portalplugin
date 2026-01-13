@@ -645,8 +645,8 @@ public class BlastAdvancedBlasterListener implements Listener {
         Location p1 = new Location(w, lock.getX() + 0.5 + x1, y, lock.getZ() + 0.5 + z1);
         Location p2 = new Location(w, lock.getX() + 0.5 + x2, y, lock.getZ() + 0.5 + z2);
 
-        w.spawnParticle(Particle.WITCH, p1, 2, 0.02, 0.02, 0.02, 0.0);
-        w.spawnParticle(Particle.WITCH, p2, 2, 0.02, 0.02, 0.02, 0.0);
+        w.spawnParticle(Particle.END_ROD, p1, 2, 0.02, 0.02, 0.02, 0.0);
+        w.spawnParticle(Particle.END_ROD, p2, 2, 0.02, 0.02, 0.02, 0.0);
 
         Location center = caster.getLocation().clone().add(0, 1.0, 0);
         w.spawnParticle(Particle.END_ROD, center, 1, 0.25, 0.25, 0.25, 0.0);
