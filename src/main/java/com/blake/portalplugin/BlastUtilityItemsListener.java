@@ -358,7 +358,7 @@ public class BlastUtilityItemsListener implements Listener {
                 pos.getWorld().spawnParticle(Particle.DUST, pos, 6, 0.05, 0.05, 0.05, 0, dust);
 
                 if (dist < 1.3) {
-                    bm.applyInstantElim(shooter, target, BlastDamageSource.HOMING_MISSILE);
+                    bm.applyInstantElim(shooter, target, BlastDamageSource.HOMING_MISSILE, "Homing Missile");
                     target.getWorld().spawnParticle(Particle.EXPLOSION, target.getLocation(), 2, 0.2, 0.2, 0.2, 0);
                     target.getWorld().playSound(target.getLocation(), Sound.ENTITY_GENERIC_EXPLODE, 0.8f, 1.2f);
                     cancel();
@@ -461,7 +461,7 @@ public class BlastUtilityItemsListener implements Listener {
             impact.getWorld().playSound(impact, Sound.ENTITY_GENERIC_EXPLODE, 0.9f, 1.1f);
 
             // Small AoE elim
-            bm.applyBigAoE(shooter, impact, 4.5, null);
+            bm.applyBigAoE(shooter, impact, 4.5, null, "Fireball");
             BlastWoolUtil.breakWoolBurst(impact, 2);
 
             try { fb.remove(); } catch (Throwable ignored) {}
@@ -489,7 +489,7 @@ public class BlastUtilityItemsListener implements Listener {
                     if (gsm.getGameState(victim) != GameState.BLAST) continue;
                     if (victim.getLocation().distanceSquared(impact) > radius * radius) continue;
 
-                    bm.applyInstantElim(shooter, victim);
+                    bm.applyInstantElim(shooter, victim, BlastDamageSource.DEFAULT, "Boom Slingshot");
                 }
             }
 
@@ -585,7 +585,7 @@ public class BlastUtilityItemsListener implements Listener {
         impact.getWorld().playSound(impact, Sound.ENTITY_GENERIC_EXPLODE, 0.9f, 1.1f);
 
         if (bm != null && shooter != null) {
-            bm.applyBigAoE(shooter, impact, 5.0, new HashSet<>());
+            bm.applyBigAoE(shooter, impact, 5.0, new HashSet<>(), "Ender Soar");
         }
 
         try { pearl.remove(); } catch (Throwable ignored) {}

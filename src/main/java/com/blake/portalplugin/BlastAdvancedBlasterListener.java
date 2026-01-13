@@ -243,7 +243,7 @@ public class BlastAdvancedBlasterListener implements Listener {
         }
 
         for (Player v : victims) {
-            bm.applyInstantElim(shooter, v);
+            bm.applyInstantElim(shooter, v, BlastDamageSource.DEFAULT, "Scatter Blaster");
         }
     }
 
@@ -254,6 +254,8 @@ public class BlastAdvancedBlasterListener implements Listener {
 
         BlastMinigameManager bm = plugin.getBlastMinigameManager();
         if (bm == null || !bm.isInProgress()) return;
+
+        playSoundSafe(world, shooter.getLocation(), Sound.ENTITY_FIREWORK_ROCKET_LAUNCH, 0.7f, 1.1f);
 
         Vector dir = start.getDirection().normalize();
 
@@ -298,7 +300,7 @@ public class BlastAdvancedBlasterListener implements Listener {
 
         if (hitPlayer != null && entDist < blkDist) {
             playSoundSafe(world, hitPlayer.getLocation(), Sound.ENTITY_ZOMBIE_ATTACK_IRON_DOOR, 0.7f, 1.25f);
-            bm.applyInstantElim(shooter, hitPlayer);
+            bm.applyInstantElim(shooter, hitPlayer, BlastDamageSource.DEFAULT, "Range Blaster");
         }
     }
 
@@ -484,7 +486,7 @@ public class BlastAdvancedBlasterListener implements Listener {
                 playSoundSafe(w, loc, Sound.ENTITY_LIGHTNING_BOLT_IMPACT, 0.7f, 1.2f);
             }
 
-            bm.applyInstantElim(caster, v, BlastDamageSource.STRIKE_BLASTER);
+            bm.applyInstantElim(caster, v, BlastDamageSource.STRIKE_BLASTER, "Strike Blaster");
         }
     }
 

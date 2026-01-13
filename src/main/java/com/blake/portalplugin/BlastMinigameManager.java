@@ -25,7 +25,7 @@ public class BlastMinigameManager {
     public static final int MAX_PLAYERS = 16;
     public static final int MAX_SECONDS = 20 * 60;
 
-    private static final int STARTING_LIVES = 100;
+    private static final int STARTING_LIVES = 80;
 
     private final PortalPlugin plugin;
     private final GameStateManager gameStateManager;
@@ -48,6 +48,7 @@ public class BlastMinigameManager {
 
     // Elim Tokens (per-match, resets each game)
     private final Map<UUID, Integer> elimTokensByPlayer = new HashMap<>();
+    private final Map<UUID, Integer> blastStreakByPlayer = new HashMap<>();
 
     // Shop NPCs (1 per team)
     private final Map<BlastTeam, UUID> shopNpcByTeam = new EnumMap<>(BlastTeam.class);
@@ -153,6 +154,10 @@ public class BlastMinigameManager {
         elimTokensByPlayer.clear();
     }
 
+    private void resetBlastStreaks() {
+        blastStreakByPlayer.clear();
+    }
+
     private void loadSpawnProtectionFromConfig() {
         spawnProtectionByTeam.clear();
 
@@ -211,7 +216,7 @@ public class BlastMinigameManager {
         return region.contains(victim.getLocation());
     }
 
-    private void awardElimToken(Player killer, Player victim) {
+    private void awardElimToken(Player killer, Player victim, String weaponLabel) {
         if (!inProgress) return;
 
         if (killer != null) {
@@ -225,9 +230,43 @@ public class BlastMinigameManager {
             if (victim != null) {
                 broadcastToParticipants("§e[BLAST] §f" + killer.getName() + " §esent §f" + victim.getName() + " §eback to spawn.");
             }
+
+            updateBlastStreak(killer);
         }
 
         refreshBoards();
+    }
+
+    private void updateBlastStreak(Player killer) {
+        if (killer == null || !killer.isOnline()) return;
+        int next = blastStreakByPlayer.getOrDefault(killer.getUniqueId(), 0) + 1;
+        blastStreakByPlayer.put(killer.getUniqueId(), next);
+
+        if (next % 5 == 0 && next <= 300) {
+            broadcastToParticipants("§d[BLAST] §f" + killer.getName()
+                    + " §dis on a blast streak of §f" + next + "§d!");
+        }
+    }
+
+    private void resetBlastStreak(Player victim) {
+        if (victim == null) return;
+        blastStreakByPlayer.put(victim.getUniqueId(), 0);
+    }
+
+    private void sendHitMessage(Player shooter, Player victim, String weaponLabel) {
+        if (shooter == null || victim == null) return;
+        if (!victim.isOnline()) return;
+        String weapon = (weaponLabel == null || weaponLabel.isBlank()) ? "Blaster" : weaponLabel;
+        victim.sendMessage("§c[BLAST] You were hit by §f" + shooter.getName() + " §cwith §f" + weapon + "§c.");
+    }
+
+    private String weaponLabelForSource(BlastDamageSource source) {
+        if (source == null) return "Blaster";
+        return switch (source) {
+            case STRIKE_BLASTER -> "Strike Blaster";
+            case HOMING_MISSILE -> "Homing Missile";
+            default -> "Blaster";
+        };
     }
 
     public void reloadMaps() {
@@ -301,6 +340,7 @@ public class BlastMinigameManager {
         spawnIndexByPlayer.clear();
         resetLives();
         resetElimTokens();
+        resetBlastStreaks();
 
         List<BlastTeam> order = List.of(BlastTeam.RED, BlastTeam.GREEN, BlastTeam.YELLOW, BlastTeam.BLUE);
         Map<BlastTeam, Integer> teamCounts = new EnumMap<>(BlastTeam.class);
@@ -354,6 +394,11 @@ public class BlastMinigameManager {
             p.sendMessage("§a[BLAST] You are on team " + team.getColor() + team.getKey().toUpperCase() + "§a.");
         }
 
+        for (BlastTeam t : BlastTeam.values()) {
+            if (teamCounts.getOrDefault(t, 0) > 0) continue;
+            eliminateTeamNoPlayers(t, "has no players.");
+        }
+
         applyBlastTeamsToAllParticipantScoreboards();
         spawnShopNpcsForTeams();
 
@@ -396,12 +441,14 @@ public class BlastMinigameManager {
             boolean removed = removeNextArmorPiece(victim);
             if (removed) continue;
 
-            awardElimToken(shooter, victim);
+            sendHitMessage(shooter, victim, "Basic Blaster");
+            awardElimToken(shooter, victim, "Basic Blaster");
             respawnAndConsumeLife(victim, victimTeam);
             return;
         }
 
         // armor removed, but not eliminated
+        sendHitMessage(shooter, victim, "Basic Blaster");
         refreshBoards();
     }
 
@@ -420,7 +467,8 @@ public class BlastMinigameManager {
         BlastTeam victimTeam = teamByPlayer.get(victim.getUniqueId());
         if (victimTeam == null) return;
 
-        awardElimToken(shooter, victim);
+        sendHitMessage(shooter, victim, "Big Blaster");
+        awardElimToken(shooter, victim, "Big Blaster");
 
         wipeAllArmor(victim);
         respawnAndConsumeLife(victim, victimTeam);
@@ -428,6 +476,10 @@ public class BlastMinigameManager {
 
     // Big AoE: hits all enemies in radius; removes 1 armor piece; if none, elim+respawn
     public void applyBigAoE(Player shooter, Location center, double radius, Set<UUID> processed) {
+        applyBigAoE(shooter, center, radius, processed, "Big Blaster");
+    }
+
+    public void applyBigAoE(Player shooter, Location center, double radius, Set<UUID> processed, String weaponLabel) {
         if (!inProgress) return;
         if (center == null || center.getWorld() == null) return;
 
@@ -458,11 +510,13 @@ public class BlastMinigameManager {
 
             boolean removedArmor = removeNextArmorPiece(victim);
             if (removedArmor) {
+                sendHitMessage(shooter, victim, weaponLabel);
                 if (processed != null) processed.add(id);
                 continue;
             }
 
-            awardElimToken(shooter, victim);
+            sendHitMessage(shooter, victim, weaponLabel);
+            awardElimToken(shooter, victim, weaponLabel);
             respawnAndConsumeLife(victim, victimTeam);
 
             if (processed != null) processed.add(id);
@@ -730,6 +784,10 @@ public class BlastMinigameManager {
     // ===== Elim / armor handling =====
 
     public void applyInstantElim(Player attacker, Player victim, BlastDamageSource source) {
+        applyInstantElim(attacker, victim, source, weaponLabelForSource(source));
+    }
+
+    public void applyInstantElim(Player attacker, Player victim, BlastDamageSource source, String weaponLabel) {
         if (!inProgress) return;
         if (victim == null || !victim.isOnline()) return;
         if (!isParticipant(victim)) return;
@@ -746,7 +804,8 @@ public class BlastMinigameManager {
         BlastTeam victimTeam = teamByPlayer.get(victim.getUniqueId());
         if (victimTeam == null) return;
 
-        awardElimToken(attacker, victim);
+        sendHitMessage(attacker, victim, weaponLabel);
+        awardElimToken(attacker, victim, weaponLabel);
 
         wipeAllArmor(victim);
         respawnAndConsumeLife(victim, victimTeam);
@@ -754,11 +813,11 @@ public class BlastMinigameManager {
 
     // COMPAT: older callers
     public void applyInstantElim(Player victim) {
-        applyInstantElim(null, victim, BlastDamageSource.DEFAULT);
+        applyInstantElim(null, victim, BlastDamageSource.DEFAULT, weaponLabelForSource(BlastDamageSource.DEFAULT));
     }
 
     public void applyInstantElim(Player attacker, Player victim) {
-        applyInstantElim(attacker, victim, BlastDamageSource.DEFAULT);
+        applyInstantElim(attacker, victim, BlastDamageSource.DEFAULT, weaponLabelForSource(BlastDamageSource.DEFAULT));
     }
 
     private void wipeAllArmor(Player victim) {
@@ -809,6 +868,8 @@ public class BlastMinigameManager {
 
     private void respawnAndConsumeLife(Player victim, BlastTeam victimTeam) {
         if (victim == null || victimTeam == null) return;
+
+        resetBlastStreak(victim);
 
         if (eliminatedTeams.contains(victimTeam) || livesByTeam.getOrDefault(victimTeam, STARTING_LIVES) <= 0) {
             setTeamSpectator(victimTeam);
@@ -872,6 +933,23 @@ public class BlastMinigameManager {
         }
     }
 
+    private void eliminateTeamNoPlayers(BlastTeam team, String reason) {
+        if (team == null) return;
+
+        livesByTeam.put(team, 0);
+        boolean newlyEliminated = eliminatedTeams.add(team);
+        if (newlyEliminated) {
+            String msg = (reason == null || reason.isBlank())
+                    ? "has no players remaining."
+                    : reason;
+            broadcastToParticipants("§c[BLAST] Team " + team.getColor()
+                    + team.getKey().toUpperCase() + "§c " + msg);
+        }
+
+        refreshBoards();
+        checkForLastTeamStanding();
+    }
+
     private void checkForLastTeamStanding() {
         BlastTeam last = getLastTeamStanding();
         if (last == null) return;
@@ -903,9 +981,11 @@ public class BlastMinigameManager {
         if (p == null) return;
 
         UUID id = p.getUniqueId();
+        BlastTeam team = teamByPlayer.get(id);
 
         participants.remove(id);
         elimTokensByPlayer.remove(id);
+        blastStreakByPlayer.remove(id);
 
         teamByPlayer.remove(id);
         spawnIndexByPlayer.remove(id);
@@ -921,6 +1001,20 @@ public class BlastMinigameManager {
         }
 
         if (inProgress) {
+            if (team != null) {
+                boolean hasTeamPlayers = false;
+                for (UUID pid : new ArrayList<>(participants)) {
+                    BlastTeam t = teamByPlayer.get(pid);
+                    if (t == team) {
+                        hasTeamPlayers = true;
+                        break;
+                    }
+                }
+                if (!hasTeamPlayers) {
+                    eliminateTeamNoPlayers(team, "has no players remaining.");
+                }
+            }
+
             int onlineLeft = 0;
             for (UUID pid : participants) {
                 Player op = Bukkit.getPlayer(pid);
@@ -966,6 +1060,7 @@ public class BlastMinigameManager {
         teamByPlayer.clear();
         spawnIndexByPlayer.clear();
         resetElimTokens();
+        resetBlastStreaks();
 
         inProgress = false;
         activeMap = null;
