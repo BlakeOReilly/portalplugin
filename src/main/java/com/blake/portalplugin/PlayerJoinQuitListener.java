@@ -4,6 +4,7 @@ import com.blake.portalplugin.ArenaEliminationHandler;
 import com.blake.portalplugin.GameStateManager;
 import com.blake.portalplugin.HubSpawnManager;
 import com.blake.portalplugin.PortalPlugin;
+import com.blake.portalplugin.BlastMap;
 import com.blake.portalplugin.arenas.Arena;
 import com.blake.portalplugin.arenas.ArenaManager;
 import com.blake.portalplugin.queues.GameQueueManager;
@@ -40,9 +41,23 @@ public class PlayerJoinQuitListener implements Listener {
     public void onJoin(PlayerJoinEvent e) {
         manager.ensureDefault(e.getPlayer());
 
-        Location hubSpawn = hubSpawnManager.getHubSpawn();
-        if (hubSpawn != null) {
-            e.getPlayer().teleport(hubSpawn);
+        Location joinSpawn = null;
+        if (plugin.getBlastMinigameManager() != null) {
+            String activeMap = plugin.getConfig().getString("blast.active-map", "");
+            if (activeMap != null && !activeMap.isBlank()) {
+                BlastMap map = plugin.getBlastMinigameManager().getMapStore().getMap(activeMap.trim().toLowerCase());
+                if (map != null) {
+                    joinSpawn = map.getStartSpawn();
+                }
+            }
+        }
+
+        if (joinSpawn == null) {
+            joinSpawn = hubSpawnManager.getHubSpawn();
+        }
+
+        if (joinSpawn != null) {
+            e.getPlayer().teleport(joinSpawn);
         }
 
         // If this server is configured as a "minigame hub", auto-queue on join
