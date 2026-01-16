@@ -32,6 +32,9 @@ public class BlastMap {
     // 4 spawn points per team (up to 4 each)
     private final EnumMap<BlastTeam, List<Location>> spawns = new EnumMap<>(BlastTeam.class);
 
+    // Start spawn (used for player join spawn per map)
+    private Location startSpawn;
+
     public BlastMap(String name) {
         this.name = (name == null ? "unknown" : name.trim().toLowerCase());
         for (BlastTeam t : BlastTeam.values()) {
@@ -116,6 +119,17 @@ public class BlastMap {
         this.ceilingY = ceilingY;
     }
 
+    public Location getStartSpawn() {
+        return startSpawn;
+    }
+
+    public void setStartSpawn(Location startSpawn) {
+        this.startSpawn = startSpawn;
+        if (startSpawn != null && startSpawn.getWorld() != null && worldName == null) {
+            worldName = startSpawn.getWorld().getName();
+        }
+    }
+
     // -------------------------
     // Spawns
     // -------------------------
@@ -196,6 +210,7 @@ public class BlastMap {
         sec.set("region.min", regionMin == null ? null : serializeLocation(regionMin));
         sec.set("region.max", regionMax == null ? null : serializeLocation(regionMax));
         sec.set("ceiling.y", ceilingY);
+        sec.set("start-spawn", startSpawn == null ? null : serializeLocation(startSpawn));
 
         // blocks list: "dx,dy,dz,MATERIAL"
         List<String> blocks = new ArrayList<>();
@@ -237,6 +252,9 @@ public class BlastMap {
         if (sec.contains("ceiling.y")) {
             map.setCeilingY(sec.getInt("ceiling.y"));
         }
+
+        Location startSpawn = deserializeLocation(sec.getString("start-spawn", null));
+        if (startSpawn != null) map.setStartSpawn(startSpawn);
 
         // blocks
         List<String> blocks = sec.getStringList("blocks");

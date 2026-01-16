@@ -89,6 +89,7 @@ public class BlastMapCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage("§eRegion: §f" + (map.getRegionMin() == null ? "(none)" : (format(map.getRegionMin()) + " -> " + format(map.getRegionMax()))));
             sender.sendMessage("§eBlocks: §f" + (map.getSavedBlocks() == null ? 0 : map.getSavedBlocks().size()));
             sender.sendMessage("§eCeiling Y: §f" + (map.getCeilingY() == null ? "(none)" : map.getCeilingY()));
+            sender.sendMessage("§eStart Spawn: §f" + (map.getStartSpawn() == null ? "(none)" : format(map.getStartSpawn())));
 
             for (BlastTeam t : BlastTeam.values()) {
                 sender.sendMessage("§eSpawns " + t.getKey() + ": §f" + countNonNull(map.getSpawns(t)) + "/4");
@@ -125,6 +126,29 @@ public class BlastMapCommand implements CommandExecutor, TabCompleter {
             mgr.getMapStore().putMap(map);
 
             sender.sendMessage("§a[BLAST] Set ceiling Y for '" + name + "' to " + y + ".");
+            return true;
+        }
+
+        if (sub.equals("select")) {
+            if (args.length < 2) {
+                sender.sendMessage("§cUsage: /blastmap select <name>");
+                return true;
+            }
+            String name = args[1].trim().toLowerCase();
+            BlastMinigameManager mgr = plugin.getBlastMinigameManager();
+            if (mgr == null) {
+                sender.sendMessage("§c[BLAST] Manager not available.");
+                return true;
+            }
+            BlastMap map = mgr.getMapStore().getMap(name);
+            if (map == null) {
+                sender.sendMessage("§c[BLAST] Map not found: " + name);
+                return true;
+            }
+
+            plugin.getConfig().set("blast.active-map", map.getName());
+            plugin.saveConfig();
+            sender.sendMessage("§a[BLAST] Active map set to '" + map.getName() + "'.");
             return true;
         }
 
@@ -187,6 +211,47 @@ public class BlastMapCommand implements CommandExecutor, TabCompleter {
             mgr.getMapStore().putMap(map);
 
             sender.sendMessage("§a[BLAST] Set spawn " + idx + " for " + team.getKey() + " on '" + name + "'.");
+            return true;
+        }
+
+        if (sub.equals("startspawn")) {
+            if (args.length < 5) {
+                sender.sendMessage("§cUsage: /blastmap startspawn <name> <x> <y> <z>");
+                return true;
+            }
+            String name = args[1].trim().toLowerCase();
+            BlastMap map = requireMap(sender, mgr, name);
+            if (map == null) return true;
+
+            double x;
+            double y;
+            double z;
+            try {
+                x = Double.parseDouble(args[2]);
+                y = Double.parseDouble(args[3]);
+                z = Double.parseDouble(args[4]);
+            } catch (Exception e) {
+                sender.sendMessage("§c[BLAST] Coordinates must be numbers.");
+                return true;
+            }
+
+            if (p.getWorld() == null) {
+                sender.sendMessage("§c[BLAST] Your world is not loaded.");
+                return true;
+            }
+
+            Location loc = new Location(
+                    p.getWorld(),
+                    x,
+                    y,
+                    z,
+                    p.getLocation().getYaw(),
+                    p.getLocation().getPitch()
+            );
+            map.setStartSpawn(loc);
+            mgr.getMapStore().putMap(map);
+
+            sender.sendMessage("§a[BLAST] Start spawn set for '" + name + "' to " + format(loc));
             return true;
         }
 
@@ -355,9 +420,11 @@ public class BlastMapCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage("§e/blastmap create <name>");
         sender.sendMessage("§e/blastmap info <name>");
         sender.sendMessage("§e/blastmap setceiling <name> <y>");
+        sender.sendMessage("§e/blastmap select <name>");
         sender.sendMessage("§e/blastmap saveregion <name>");
         sender.sendMessage("§e/blastmap setpaste <name>");
         sender.sendMessage("§e/blastmap setspawn <name> <red|green|yellow|blue> <1-4>");
+        sender.sendMessage("§e/blastmap startspawn <name> <x> <y> <z>");
         sender.sendMessage("§e/blastmap regen <name>");
     }
 
@@ -379,7 +446,7 @@ public class BlastMapCommand implements CommandExecutor, TabCompleter {
         if (!sender.hasPermission("portalplugin.blast.maps")) return List.of();
 
         if (args.length == 1) {
-            return partial(args[0], List.of("list", "create", "saveregion", "setpaste", "setspawn", "setceiling", "regen", "info"));
+            return partial(args[0], List.of("list", "create", "saveregion", "setpaste", "setspawn", "setceiling", "startspawn", "select", "regen", "info"));
         }
 
         if (args.length == 2) {

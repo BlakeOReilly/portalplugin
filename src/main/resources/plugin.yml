@@ -155,6 +155,8 @@ commands:
       /blastmap saveregion <name>
       /blastmap setpaste <name>
       /blastmap setspawn <name> <red|green|yellow|blue> <1-4>
+      /blastmap startspawn <name> <x> <y> <z>
+      /blastmap select <name>
       /blastmap regen <name>
       /blastmap info <name>
     permission: portalplugin.blast.maps
