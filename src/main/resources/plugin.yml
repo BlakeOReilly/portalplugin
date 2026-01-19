@@ -166,6 +166,11 @@ commands:
     usage: /spawnprotection <team> <x1> <y1> <z1> <x2> <y2> <z2>
     permission: portalplugin.blast.spawnprotection
 
+  diamondspawnrange:
+    description: Set the BLAST diamond spawn Y range
+    usage: /diamondspawnrange <minY> <maxY>
+    permission: portalplugin.blast.diamondspawnrange
+
   pausecountdown:
     description: Pause the BLAST queue countdown
     usage: /pausecountdown
@@ -217,6 +222,10 @@ permissions:
 
   portalplugin.winlocation:
     description: Allows setting the global win location
+    default: op
+
+  portalplugin.blast.diamondspawnrange:
+    description: Allows setting the BLAST diamond spawn Y range
     default: op
 
   portalplugin.createspawnsign:

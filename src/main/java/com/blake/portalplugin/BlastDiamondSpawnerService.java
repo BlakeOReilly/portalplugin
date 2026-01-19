@@ -37,6 +37,7 @@ public class BlastDiamondSpawnerService {
 
     // Avoid spamming logs
     private boolean warnedNoBounds = false;
+    private boolean warnedNoSpawnRange = false;
 
     public BlastDiamondSpawnerService(PortalPlugin plugin, GameStateManager gameStateManager) {
         this.plugin = plugin;
@@ -101,6 +102,7 @@ public class BlastDiamondSpawnerService {
         // If BLAST isn't running, keep the world clean of previously spawned diamonds
         if (bm == null || !bm.isInProgress()) {
             warnedNoBounds = false;
+            warnedNoSpawnRange = false;
             pruneInvalid();
             clearAllActiveDiamonds();
             return;
@@ -128,9 +130,20 @@ public class BlastDiamondSpawnerService {
             }
             return;
         }
+        warnedNoBounds = false;
+
+        Bounds spawnBounds = applySpawnRange(bounds, world);
+        if (spawnBounds == null) {
+            if (!warnedNoSpawnRange) {
+                warnedNoSpawnRange = true;
+                plugin.getLogger().warning("[BLAST] Diamond spawns skipped: configured spawn Y range does not overlap map bounds.");
+            }
+            return;
+        }
+        warnedNoSpawnRange = false;
 
         for (int i = 0; i < toSpawn; i++) {
-            Location loc = findSolidGroundSpawn(world, bounds, 30);
+            Location loc = findSolidGroundSpawn(world, spawnBounds, 30);
             if (loc == null) continue;
 
             Item dropped;
@@ -269,6 +282,26 @@ public class BlastDiamondSpawnerService {
 
         int minY = Math.max(world.getMinHeight(), b.minY);
         int maxY = Math.min(world.getMaxHeight() - 2, b.maxY);
+
+        return new Bounds(b.minX, b.maxX, minY, maxY, b.minZ, b.maxZ);
+    }
+
+    private Bounds applySpawnRange(Bounds b, World world) {
+        if (b == null || world == null) return b;
+
+        int configMin = plugin.getConfig().getInt("blast.diamond-spawn.min-y", world.getMinHeight());
+        int configMax = plugin.getConfig().getInt("blast.diamond-spawn.max-y", world.getMaxHeight() - 2);
+
+        if (configMin > configMax) {
+            int tmp = configMin;
+            configMin = configMax;
+            configMax = tmp;
+        }
+
+        int minY = Math.max(b.minY, configMin);
+        int maxY = Math.min(b.maxY, configMax);
+
+        if (minY > maxY) return null;
 
         return new Bounds(b.minX, b.maxX, minY, maxY, b.minZ, b.maxZ);
     }
