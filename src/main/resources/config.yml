@@ -63,6 +63,11 @@ blast:
   diamond-hud:
     enabled: false
 
+  # Random diamond spawn surface range (inclusive Y levels)
+  diamond-spawn:
+    min-y: -64
+    max-y: 320
+
   # Region snapshot saving (used by /blastmap saveregion + /blastmap regen)
   region:
     # Maximum blocks allowed in a saved selection (unless bypass permission)

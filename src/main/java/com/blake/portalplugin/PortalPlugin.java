@@ -332,6 +332,10 @@ public class PortalPlugin extends JavaPlugin {
             getCommand("spawnprotection").setTabCompleter(cmd);
         }
 
+        if (getCommand("diamondspawnrange") != null) {
+            getCommand("diamondspawnrange").setExecutor(new DiamondSpawnRangeCommand(this));
+        }
+
         if (getCommand("pausecountdown") != null)
             getCommand("pausecountdown").setExecutor(new PauseCountdownCommand(minigameQueueManager));
 
